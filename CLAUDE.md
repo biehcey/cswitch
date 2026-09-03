@@ -1,4 +1,4 @@
-# claude-open-gui
+# cswitch
 
 ## Agent skills
 
