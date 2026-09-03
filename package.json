@@ -1,0 +1,27 @@
+{
+  "name": "cswitch",
+  "version": "0.0.0",
+  "description": "Run multiple Claude Code accounts on one machine",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "cswitch": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.7.0"
+  }
+}
