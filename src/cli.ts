@@ -1,11 +1,31 @@
 #!/usr/bin/env node
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { EXIT_OK, EXIT_RUNTIME, EXIT_USAGE } from "./exit-codes.js";
 import { HELP_TEXT } from "./help-text.js";
 import { parseTopLevel } from "./args.js";
+import { resolveHome } from "./home.js";
+import { createProcessIo } from "./io.js";
+import { parseInitArgs } from "./init-args.js";
+import { runInit } from "./init.js";
 import { readVersion } from "./version.js";
 
-export function run(argv: string[]): number {
+async function handleInit(rest: string[]): Promise<number> {
+  const parsed = parseInitArgs(rest);
+  if (parsed.kind === "error") {
+    process.stderr.write(`${parsed.message}\n`);
+    return EXIT_USAGE;
+  }
+
+  return runInit({
+    home: resolveHome(process.env),
+    nameFlag: parsed.name,
+    io: createProcessIo(),
+    env: process.env,
+    scriptPath: process.argv[1] ?? fileURLToPath(import.meta.url),
+  });
+}
+
+export async function run(argv: string[]): Promise<number> {
   const parsed = parseTopLevel(argv);
 
   switch (parsed.kind) {
@@ -23,6 +43,9 @@ export function run(argv: string[]): number {
       return EXIT_USAGE;
     }
     case "subcommand": {
+      if (parsed.name === "init") {
+        return handleInit(parsed.rest);
+      }
       process.stderr.write(`cswitch ${parsed.name}: not implemented yet\n`);
       return EXIT_RUNTIME;
     }
@@ -34,5 +57,5 @@ export function run(argv: string[]): number {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.exit(run(process.argv.slice(2)));
+  run(process.argv.slice(2)).then((code) => process.exit(code));
 }
