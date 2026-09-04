@@ -13,7 +13,7 @@ cswitch: work · batuhan.ardic@mikrokom.com · Mikrokom
 ## Install
 
 ```bash
-npm i -g cswitch
+npm i -g @biehcey/cswitch
 ```
 
 Requires Node.js ≥ 20.19.
@@ -82,4 +82,4 @@ rm -rf ~/.cswitch
 
 ---
 
-To try cswitch without installing it globally: `npx cswitch@latest`.
+To try cswitch without installing it globally: `npx @biehcey/cswitch@latest`.
