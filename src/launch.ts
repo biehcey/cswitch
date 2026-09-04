@@ -3,7 +3,7 @@ import { lstatSync, mkdirSync, readdirSync, readlinkSync, rmdirSync, symlinkSync
 import path from "node:path";
 import { formatAccount, readAccount, type AccountDisplay } from "./account.js";
 import { matchBinding, tryCanonicalize } from "./binding.js";
-import { profilesDirPath, type Binding, type Config, type ProfileRecord } from "./config.js";
+import { profilesDirPath, settingsPath, type Binding, type Config, type ProfileRecord } from "./config.js";
 import { EXIT_RUNTIME } from "./exit-codes.js";
 
 export type ProfileResolution =
@@ -169,6 +169,77 @@ export function ensurePluginsJunction(home: string, cswitchHome: string, record:
   return { kind: "recreated" };
 }
 
+const WIN32_EXECUTABLE_EXTENSIONS = /\.(cmd|exe|ps1|bat)$/i;
+
+/** Known Claude Code subcommands `--settings` isn't accepted on (spec §5.4) — a stale list
+ * is a known tradeoff, escaped at runtime by `CSWITCH_NO_SETTINGS=1` rather than probed. */
+const KNOWN_CLAUDE_SUBCOMMANDS = new Set([
+  "mcp",
+  "plugin",
+  "config",
+  "doctor",
+  "update",
+  "install",
+  "migrate-installer",
+  "setup-token",
+  "agents",
+]);
+
+/**
+ * Whether the executed command names `claude` (spec §5.4 step 1) once its
+ * path and, on win32, executable extension are stripped. Comparison is
+ * case-insensitive only on win32, where executable names already are.
+ */
+export function isClaudeCommand(command0: string, platform: NodeJS.Platform = process.platform): boolean {
+  let base = path.basename(command0);
+  if (platform === "win32") {
+    base = base.replace(WIN32_EXECUTABLE_EXTENSIONS, "").toLowerCase();
+    return base === "claude";
+  }
+  return base === "claude";
+}
+
+/**
+ * Whether `--settings` should be injected into the launched command (spec
+ * §5.4): the command is `claude`, its first non-flag token (if any) isn't a
+ * known subcommand, and the escape hatch isn't set.
+ */
+export function shouldInjectSettings(
+  command: string[],
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (env.CSWITCH_NO_SETTINGS === "1") {
+    return false;
+  }
+  if (command.length === 0 || !isClaudeCommand(command[0]!, platform)) {
+    return false;
+  }
+  const firstNonFlag = command.slice(1).find((token) => !token.startsWith("-"));
+  if (firstNonFlag !== undefined && KNOWN_CLAUDE_SUBCOMMANDS.has(firstNonFlag)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Builds the command actually spawned, inserting `--settings <absolute path
+ * to ~/.cswitch/settings.json>` as the first argument after `claude` (spec
+ * §5.4) when `shouldInjectSettings` says to; otherwise returns `command`
+ * unchanged.
+ */
+export function buildLaunchCommand(
+  command: string[],
+  cswitchHome: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  if (!shouldInjectSettings(command, env, platform)) {
+    return command;
+  }
+  return [command[0]!, "--settings", path.resolve(settingsPath(cswitchHome)), ...command.slice(1)];
+}
+
 /**
  * The fixed-prefix startup line written to stderr (spec §5.5). The
  * "[no binding — default]" tag appears only when the profile was reached by
@@ -271,5 +342,5 @@ export async function runLaunch(params: RunLaunchParams): Promise<number> {
     process.stderr.write(`${formatStartupLine(record.name, account, usedDefault)}\n`);
   }
 
-  return spawnAndWait(command, buildChildEnv(env, cswitchHome, record));
+  return spawnAndWait(buildLaunchCommand(command, cswitchHome, env), buildChildEnv(env, cswitchHome, record));
 }
