@@ -10,15 +10,24 @@ const CYAN = "\x1b[36m";
 const DIM = "\x1b[2m";
 const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
+const YELLOW = "\x1b[33m";
 
 export const CLEAR_SCREEN = "\x1b[2J\x1b[H";
 
-export const LIST_FOOTER_HINT = "[enter] run   [a]dd   [esc] quit";
+export const LIST_FOOTER_HINT = "[enter] run   [a]dd   [d] remove   [esc] quit";
 
 export const ADD_FOOTER_HINT = "[enter] create   [esc] cancel";
 
+export const REMOVE_FOOTER_HINT = "[y] remove   [n/esc] cancel";
+
 function pad(text: string, width: number): string {
   return text.length >= width ? text : text + " ".repeat(width - text.length);
+}
+
+/** Indents a possibly multi-line message and colors every line of it, so a message
+ * that wraps stays visibly one block rather than trailing off uncolored. */
+function messageBlock(text: string, color: string): string[] {
+  return text.split("\n").map((line) => `  ${color}${line}${RESET}`);
 }
 
 function loginStateColor(state: ReturnType<typeof loginStateOf>): string {
@@ -30,8 +39,12 @@ function loginStateColor(state: ReturnType<typeof loginStateOf>): string {
  * State, Default marker — with a fixed key-hint footer (spec §10.2). Pure and
  * TTY-independent so it can be unit tested without a real terminal; the caller
  * is responsible for clearing the screen (`CLEAR_SCREEN`) before writing this.
+ * `notice` carries a message that outlived the screen that produced it — a
+ * best-effort Keychain or directory-delete warning from `removeProfile()`
+ * (§6.4/§10.9), which the redraw after a deletion would otherwise wipe; the
+ * flag-based `remove` writes the same text to stderr.
  */
-export function renderProfileList(profiles: ProfileStatus[], selectedIndex: number): string {
+export function renderProfileList(profiles: ProfileStatus[], selectedIndex: number, notice?: string): string {
   const nameWidth = Math.max(7, ...profiles.map((p) => p.name.length));
   const accountWidth = Math.max(7, ...profiles.map((p) => formatAccount(p.account).length));
 
@@ -51,7 +64,9 @@ export function renderProfileList(profiles: ProfileStatus[], selectedIndex: numb
 
   const footer = `${DIM}${LIST_FOOTER_HINT}${RESET}`;
 
-  return [header, ...rows, "", footer].join("\n") + "\n";
+  const noticeLines = notice === undefined ? [] : ["", ...messageBlock(notice, YELLOW)];
+
+  return [header, ...rows, ...noticeLines, "", footer].join("\n") + "\n";
 }
 
 /**
@@ -66,10 +81,30 @@ export function renderAddScreen(draftName: string, error: string | undefined): s
   const lines = [`${BOLD}new profile${RESET}`, "", `  name: ${draftName}${CYAN}_${RESET}`];
 
   if (error !== undefined) {
-    lines.push("", `  ${RED}${error}${RESET}`);
+    lines.push("", ...messageBlock(error, RED));
   }
 
   lines.push("", `${DIM}${ADD_FOOTER_HINT}${RESET}`);
+
+  return lines.join("\n") + "\n";
+}
+
+/**
+ * Renders the Remove confirmation (spec §10.7): the same one-line question the
+ * flag-based `cswitch remove` asks, word for word, and no request to retype the
+ * name — that is deliberate friction the spec rejects for daily use. `error` is
+ * a message from `removeProfile()` itself, shown in place rather than dropping
+ * the user back to the list with no explanation. Pure and TTY-independent, like
+ * the other screens.
+ */
+export function renderRemoveScreen(name: string, error: string | undefined): string {
+  const lines = [`${BOLD}delete ${name}? this cannot be undone (y/n)${RESET}`];
+
+  if (error !== undefined) {
+    lines.push("", ...messageBlock(error, RED));
+  }
+
+  lines.push("", `${DIM}${REMOVE_FOOTER_HINT}${RESET}`);
 
   return lines.join("\n") + "\n";
 }

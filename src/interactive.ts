@@ -3,9 +3,10 @@ import { ConfigError, readConfig, type Config } from "./config.js";
 import { EXIT_OK, EXIT_RUNTIME } from "./exit-codes.js";
 import type { Io } from "./io.js";
 import { runInit } from "./init.js";
-import { CLEAR_SCREEN, renderAddScreen, renderProfileList } from "./interactive-view.js";
+import { CLEAR_SCREEN, renderAddScreen, renderProfileList, renderRemoveScreen } from "./interactive-view.js";
 import { type KeyboardInput, type RawModeStdin, listenForKeys } from "./keyboard.js";
 import { type RunLaunchParams, runLaunch } from "./launch.js";
+import { removeProfile, type RemoveProfileParams, type RemoveProfileResult } from "./remove.js";
 import { buildStatusReport } from "./status.js";
 
 export interface RunInteractiveParams {
@@ -19,6 +20,7 @@ export interface RunInteractiveParams {
   listen?: typeof listenForKeys;
   launch?: (params: RunLaunchParams) => Promise<number>;
   add?: (params: AddProfileParams) => AddProfileOutcome;
+  remove?: (params: RemoveProfileParams) => RemoveProfileResult;
 }
 
 /**
@@ -34,6 +36,7 @@ export async function runInteractive(params: RunInteractiveParams): Promise<numb
   const listen = params.listen ?? listenForKeys;
   const launch = params.launch ?? runLaunch;
   const add = params.add ?? addProfile;
+  const remove = params.remove ?? removeProfile;
 
   let config: Config | undefined;
   try {
@@ -60,7 +63,7 @@ export async function runInteractive(params: RunInteractiveParams): Promise<numb
     }
   }
 
-  return runProfileListScreen({ home, cswitchHome, config, env, cwd, stdin, write, listen, launch, add });
+  return runProfileListScreen({ home, cswitchHome, config, env, cwd, stdin, write, listen, launch, add, remove });
 }
 
 interface ProfileListScreenParams {
@@ -74,13 +77,15 @@ interface ProfileListScreenParams {
   listen: typeof listenForKeys;
   launch: (params: RunLaunchParams) => Promise<number>;
   add: (params: AddProfileParams) => AddProfileOutcome;
+  remove: (params: RemoveProfileParams) => RemoveProfileResult;
 }
 
 /**
- * The Profile list (spec §10.5) and the add screen it opens with `a` (§10.6).
- * They share one keyboard listener and one loop rather than nesting a second
- * raw-mode session: which screen is showing is just state, so Ctrl-C and the
- * raw-mode restore keep working identically on both (spec §10.3).
+ * The Profile list (spec §10.5) and the two screens it opens: add with `a`
+ * (§10.6) and the remove confirmation with `d` (§10.7). They share one keyboard
+ * listener and one loop rather than nesting further raw-mode sessions: which
+ * screen is showing is just state, so Ctrl-C and the raw-mode restore keep
+ * working identically on all of them (spec §10.3).
  *
  * Select-run is not persistent: it calls the Launcher (§5) directly with no
  * state written and no Binding touched, then this screen (and `cswitch` with
@@ -88,7 +93,7 @@ interface ProfileListScreenParams {
  * itself (spec §10.5).
  */
 function runProfileListScreen(params: ProfileListScreenParams): Promise<number> {
-  const { home, cswitchHome, env, cwd, stdin, write, listen, launch, add } = params;
+  const { home, cswitchHome, env, cwd, stdin, write, listen, launch, add, remove } = params;
 
   let config = params.config;
   const report = buildStatusReport({ home, cswitchHome, config, cwd });
@@ -101,29 +106,53 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
       selectedIndex = 0;
     }
 
-    let screen: "list" | "add" = "list";
+    let screen: "list" | "add" | "remove" = "list";
     let draftName = "";
     let addError: string | undefined;
+    // The profile the open confirmation is about, captured when `d` was pressed
+    // so a later re-render can never retarget it at whatever is selected now.
+    let removeTarget = "";
+    let removeError: string | undefined;
+    let listNotice: string | undefined;
+
+    const renderCurrentScreen = (): string => {
+      switch (screen) {
+        case "add":
+          return renderAddScreen(draftName, addError);
+        case "remove":
+          return renderRemoveScreen(removeTarget, removeError);
+        case "list":
+          return renderProfileList(profiles, selectedIndex, listNotice);
+      }
+    };
 
     const render = () => {
       write(CLEAR_SCREEN);
-      write(screen === "add" ? renderAddScreen(draftName, addError) : renderProfileList(profiles, selectedIndex));
+      write(renderCurrentScreen());
     };
     render();
 
+    // Deliberately leaves `listNotice` alone: a notice is set by the caller that
+    // is on its way back here, and clearing it would erase the message this
+    // return is carrying.
     const openList = () => {
       screen = "list";
       draftName = "";
       addError = undefined;
+      removeTarget = "";
+      removeError = undefined;
       render();
     };
 
     /**
-     * Re-reads config.json after a successful add so the list the user comes
-     * back to includes the new Profile (spec §10.6) — `add` wrote the file, and
-     * this screen's in-memory copy is the one that is now stale.
+     * Re-reads config.json after an add or a removal so the list the user comes
+     * back to matches what is now on disk (spec §10.6/§10.7) — `add` and
+     * `removeProfile` both wrote the file, and this screen's in-memory copy is
+     * the one that is now stale. `focusName` is the Profile to select
+     * afterwards; a removal has no such Profile, so selection is clamped back
+     * into the shortened list instead.
      */
-    const reloadAfterAdd = (addedName: string): boolean => {
+    const reload = (focusName: string | undefined): boolean => {
       let reloaded: Config | undefined;
       try {
         reloaded = readConfig(cswitchHome);
@@ -136,8 +165,8 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
       }
       config = reloaded;
       profiles = buildStatusReport({ home, cswitchHome, config, cwd }).profiles;
-      const addedIndex = profiles.findIndex((p) => p.name === addedName);
-      selectedIndex = addedIndex >= 0 ? addedIndex : Math.min(selectedIndex, Math.max(profiles.length - 1, 0));
+      const focusIndex = focusName === undefined ? -1 : profiles.findIndex((p) => p.name === focusName);
+      selectedIndex = focusIndex >= 0 ? focusIndex : Math.min(selectedIndex, Math.max(profiles.length - 1, 0));
       return true;
     };
 
@@ -179,7 +208,7 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
                 render();
                 return;
               }
-              if (!reloadAfterAdd(draftName)) {
+              if (!reload(draftName)) {
                 keyboard.stop();
                 resolve(EXIT_RUNTIME);
                 return;
@@ -192,6 +221,47 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
           }
         }
 
+        if (screen === "remove") {
+          // Only y/n/Esc mean anything here; every other key is ignored so a
+          // stray press can never be read as consent (spec §10.7).
+          const answer = key === "char" ? char?.toLowerCase() : undefined;
+          if (key === "escape" || answer === "n") {
+            openList();
+            return;
+          }
+          if (answer === "y") {
+            // The same `removeProfile()` the flag-based `cswitch remove` calls —
+            // one code path, so ordering, atomicity, Binding cleanup and the
+            // best-effort Keychain step are identical here (spec §6.4/§10.7).
+            // As on the add screen, a thrown I/O error would kill the process
+            // with raw mode still on, so it is shown in place instead.
+            let result: RemoveProfileResult;
+            try {
+              result = remove({ home, name: removeTarget });
+            } catch (err) {
+              result = { kind: "error", exitCode: EXIT_RUNTIME, message: `cswitch: could not remove "${removeTarget}": ${(err as Error).message}` };
+            }
+            if (result.kind === "error") {
+              removeError = result.message;
+              render();
+              return;
+            }
+            if (!reload(undefined)) {
+              keyboard.stop();
+              resolve(EXIT_RUNTIME);
+              return;
+            }
+            // The removal already happened, so a best-effort warning has nowhere
+            // left to go: it rides back to the list rather than being wiped by
+            // the redraw (the flag-based `remove` prints it to stderr instead).
+            // Set before `openList()` so the list is drawn once, with it.
+            listNotice = result.warning;
+            openList();
+            return;
+          }
+          return;
+        }
+
         if (key === "escape") {
           keyboard.stop();
           resolve(EXIT_OK);
@@ -201,6 +271,7 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
           screen = "add";
           draftName = "";
           addError = undefined;
+          listNotice = undefined;
           render();
           return;
         }
@@ -210,10 +281,12 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
         switch (key) {
           case "up":
             selectedIndex = (selectedIndex - 1 + profiles.length) % profiles.length;
+            listNotice = undefined;
             render();
             return;
           case "down":
             selectedIndex = (selectedIndex + 1) % profiles.length;
+            listNotice = undefined;
             render();
             return;
           case "enter": {
@@ -234,8 +307,19 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
             });
             return;
           }
+          case "char":
+            // The Default Profile is never offered for removal, so `d` on it is
+            // a no-op rather than a rejected confirmation — that is what keeps
+            // `init`'s "never touches ~/.claude" promise (spec §10.7).
+            if (char === "d" && !profiles[selectedIndex]!.inPlace) {
+              screen = "remove";
+              removeTarget = profiles[selectedIndex]!.name;
+              removeError = undefined;
+              listNotice = undefined;
+              render();
+            }
+            return;
           default:
-            // `d` is reserved for the remove screen (spec §10.7 — separate ticket).
             return;
         }
       },
