@@ -2,6 +2,8 @@
 import { pathToFileURL } from "node:url";
 import { parseAddArgs } from "./add-args.js";
 import { runAdd } from "./add.js";
+import { parseBindArgs } from "./bind-args.js";
+import { runBind, runBindList } from "./bind.js";
 import { ConfigError, cswitchHomePath, readConfig, type Config } from "./config.js";
 import { EXIT_OK, EXIT_RUNTIME, EXIT_USAGE } from "./exit-codes.js";
 import { HELP_TEXT } from "./help-text.js";
@@ -11,6 +13,8 @@ import { createProcessIo } from "./io.js";
 import { parseInitArgs } from "./init-args.js";
 import { runInit } from "./init.js";
 import { runLaunch } from "./launch.js";
+import { parseUnbindArgs } from "./unbind-args.js";
+import { runUnbind } from "./unbind.js";
 import { readVersion } from "./version.js";
 
 async function handleInit(rest: string[]): Promise<number> {
@@ -35,7 +39,32 @@ function handleAdd(rest: string[]): number {
     return EXIT_USAGE;
   }
 
-  return runAdd({ home: resolveHome(process.env), name: parsed.name });
+  return runAdd({ home: resolveHome(process.env), name: parsed.name, bindDir: parsed.bindDir });
+}
+
+async function handleBind(rest: string[]): Promise<number> {
+  const parsed = parseBindArgs(rest);
+  if (parsed.kind === "error") {
+    process.stderr.write(`${parsed.message}\n`);
+    return EXIT_USAGE;
+  }
+
+  const home = resolveHome(process.env);
+  if (parsed.kind === "list") {
+    return runBindList({ home });
+  }
+
+  return runBind({ home, dir: parsed.dir, profileName: parsed.profile, force: parsed.force, io: createProcessIo() });
+}
+
+function handleUnbind(rest: string[]): number {
+  const parsed = parseUnbindArgs(rest);
+  if (parsed.kind === "error") {
+    process.stderr.write(`${parsed.message}\n`);
+    return EXIT_USAGE;
+  }
+
+  return runUnbind({ home: resolveHome(process.env), dir: parsed.dir });
 }
 
 export async function run(argv: string[]): Promise<number> {
@@ -62,6 +91,12 @@ export async function run(argv: string[]): Promise<number> {
       if (parsed.name === "add") {
         return handleAdd(parsed.rest);
       }
+      if (parsed.name === "bind") {
+        return handleBind(parsed.rest);
+      }
+      if (parsed.name === "unbind") {
+        return handleUnbind(parsed.rest);
+      }
       process.stderr.write(`cswitch ${parsed.name}: not implemented yet\n`);
       return EXIT_RUNTIME;
     }
@@ -85,6 +120,7 @@ export async function run(argv: string[]): Promise<number> {
         quiet: parsed.quiet,
         command: parsed.command,
         env: process.env,
+        cwd: process.cwd(),
       });
     }
   }

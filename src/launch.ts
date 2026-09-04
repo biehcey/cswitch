@@ -2,7 +2,8 @@ import spawn from "cross-spawn";
 import { lstatSync, mkdirSync, readdirSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { formatAccount, readAccount, type AccountDisplay } from "./account.js";
-import { profilesDirPath, type Config, type ProfileRecord } from "./config.js";
+import { matchBinding, tryCanonicalize } from "./binding.js";
+import { profilesDirPath, type Binding, type Config, type ProfileRecord } from "./config.js";
 import { EXIT_RUNTIME } from "./exit-codes.js";
 
 export type ProfileResolution =
@@ -11,11 +12,18 @@ export type ProfileResolution =
   | { kind: "no-default" };
 
 /**
- * Resolves which profile a launch targets (spec §5.2 step 1). This ticket
- * has no Binding yet: an explicit name must exist in config, and omitting it
- * falls through to the Default Profile (the one profile with inPlace: true).
+ * Resolves which profile a launch targets (spec §5.2 step 1, §4.4): an
+ * explicit name always overrides everything else and must exist in config;
+ * omitting it tries `matchedBinding` next (already resolved against cwd by
+ * the caller — a stale Binding whose profile no longer exists is treated as
+ * no match); with neither, it falls through to the Default Profile (the one
+ * profile with inPlace: true).
  */
-export function resolveLaunchProfile(config: Config | undefined, profileName: string | undefined): ProfileResolution {
+export function resolveLaunchProfile(
+  config: Config | undefined,
+  profileName: string | undefined,
+  matchedBinding: Binding | undefined = undefined,
+): ProfileResolution {
   if (profileName !== undefined) {
     const record = config?.profiles.find((p) => p.name === profileName);
     if (!record) {
@@ -24,11 +32,48 @@ export function resolveLaunchProfile(config: Config | undefined, profileName: st
     return { kind: "resolved", record, usedDefault: false };
   }
 
+  if (matchedBinding !== undefined) {
+    const record = config?.profiles.find((p) => p.name === matchedBinding.profile);
+    if (record) {
+      return { kind: "resolved", record, usedDefault: false };
+    }
+  }
+
   const record = config?.profiles.find((p) => p.inPlace === true);
   if (!record) {
     return { kind: "no-default" };
   }
   return { kind: "resolved", record, usedDefault: true };
+}
+
+/**
+ * Resolves the Binding, if any, matching `cwd` (spec §4.3, §4.4) — skipped
+ * entirely when a profile name was given explicitly, since it always wins.
+ * An unresolvable cwd (deleted, permission error) is not a hard failure: it
+ * warns to stderr and reads as "no match", so the caller falls back to the
+ * Default Profile.
+ */
+export function resolveCwdBinding(
+  config: Config | undefined,
+  profileName: string | undefined,
+  cwd: string,
+  warn: (message: string) => void,
+): Binding | undefined {
+  if (profileName !== undefined || config === undefined) {
+    return undefined;
+  }
+
+  const canonicalCwd = tryCanonicalize(cwd);
+  if (canonicalCwd === undefined) {
+    warn("cswitch: could not resolve the current directory — falling back to the default profile\n");
+    return undefined;
+  }
+
+  if (config.bindings.length === 0) {
+    return undefined;
+  }
+
+  return matchBinding(config.bindings, canonicalCwd);
 }
 
 /** The profile's `CLAUDE_CONFIG_DIR` — undefined for an in-place profile (spec §5.2 step 2). */
@@ -191,13 +236,15 @@ export interface RunLaunchParams {
   quiet: boolean;
   command: string[];
   env: NodeJS.ProcessEnv;
+  cwd: string;
 }
 
 /** Orchestrates a launch end to end: resolve profile, announce, spawn (spec §5.2). */
 export async function runLaunch(params: RunLaunchParams): Promise<number> {
-  const { home, cswitchHome, config, profileName, quiet, command, env } = params;
+  const { home, cswitchHome, config, profileName, quiet, command, env, cwd } = params;
 
-  const resolution = resolveLaunchProfile(config, profileName);
+  const matchedBinding = resolveCwdBinding(config, profileName, cwd, (message) => process.stderr.write(message));
+  const resolution = resolveLaunchProfile(config, profileName, matchedBinding);
   if (resolution.kind === "not-found") {
     process.stderr.write(`cswitch: no profile named "${resolution.name}" in ~/.cswitch/config.json\n`);
     return EXIT_RUNTIME;
