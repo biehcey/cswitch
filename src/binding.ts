@@ -101,6 +101,33 @@ export function matchBinding(
   return best;
 }
 
+/**
+ * Whether a stored Binding prefix still looks like the canonical form §4.1 writes (spec
+ * §3.1: hand-edited config.json is tolerated, a non-canonical prefix is a warning, not a
+ * hard error). Never touches the filesystem — re-running realpath at read time is exactly
+ * what §3.1 forbids. A prefix fails this check if it isn't already NFC-normalized, isn't
+ * absolute, or `path.normalize` would change it (trailing separators, `.`/`..` segments,
+ * doubled separators).
+ */
+export function looksCanonical(prefix: string): boolean {
+  if (prefix.normalize("NFC") !== prefix) {
+    return false;
+  }
+  if (!path.isAbsolute(prefix)) {
+    return false;
+  }
+  if (path.normalize(prefix) !== prefix) {
+    return false;
+  }
+  // path.normalize() preserves a trailing separator instead of stripping it, so a
+  // canonical `realpath.native` result (which never carries one, except for a bare
+  // root like `C:\` or `/`) needs its own check.
+  if (prefix !== path.parse(prefix).root && /[\\/]$/.test(prefix)) {
+    return false;
+  }
+  return true;
+}
+
 export type BindingConflictResolution = { kind: "ok" } | { kind: "blocked"; message: string } | { kind: "aborted" };
 
 /**

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 export type AccountDisplay =
   | { kind: "not-logged-in" }
   | { kind: "unknown" }
-  | { kind: "known"; emailAddress: string; organizationName?: string };
+  | { kind: "known"; emailAddress: string; organizationName?: string; accountUuid?: string };
 
 /**
  * Reads `oauthAccount` out of a `.claude.json` file, gracefully (spec §5.6).
@@ -52,7 +52,10 @@ export function readAccount(claudeJsonPath: string): AccountDisplay {
   const organizationName =
     typeof organizationNameRaw === "string" && organizationNameRaw.length > 0 ? organizationNameRaw : undefined;
 
-  return { kind: "known", emailAddress, organizationName };
+  const accountUuidRaw = (oauthAccount as Record<string, unknown>).accountUuid;
+  const accountUuid = typeof accountUuidRaw === "string" && accountUuidRaw.length > 0 ? accountUuidRaw : undefined;
+
+  return { kind: "known", emailAddress, organizationName, accountUuid };
 }
 
 export function formatAccount(display: AccountDisplay): string {

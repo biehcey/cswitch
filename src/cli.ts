@@ -13,6 +13,10 @@ import { createProcessIo } from "./io.js";
 import { parseInitArgs } from "./init-args.js";
 import { runInit } from "./init.js";
 import { runLaunch } from "./launch.js";
+import { parseShellInitArgs } from "./shell-init-args.js";
+import { renderShellInit } from "./shell-init.js";
+import { parseStatusArgs } from "./status-args.js";
+import { runStatus } from "./status.js";
 import { parseUnbindArgs } from "./unbind-args.js";
 import { runUnbind } from "./unbind.js";
 import { readVersion } from "./version.js";
@@ -57,6 +61,27 @@ async function handleBind(rest: string[]): Promise<number> {
   return runBind({ home, dir: parsed.dir, profileName: parsed.profile, force: parsed.force, io: createProcessIo() });
 }
 
+function handleShellInit(rest: string[]): number {
+  const parsed = parseShellInitArgs(rest);
+  if (parsed.kind === "error") {
+    process.stderr.write(`${parsed.message}\n`);
+    return EXIT_USAGE;
+  }
+
+  process.stdout.write(`${renderShellInit(parsed.shell)}\n`);
+  return EXIT_OK;
+}
+
+function handleStatus(rest: string[]): number {
+  const parsed = parseStatusArgs(rest);
+  if (parsed.kind === "error") {
+    process.stderr.write(`${parsed.message}\n`);
+    return EXIT_USAGE;
+  }
+
+  return runStatus({ home: resolveHome(process.env), cwd: process.cwd(), json: parsed.json });
+}
+
 function handleUnbind(rest: string[]): number {
   const parsed = parseUnbindArgs(rest);
   if (parsed.kind === "error") {
@@ -96,6 +121,12 @@ export async function run(argv: string[]): Promise<number> {
       }
       if (parsed.name === "unbind") {
         return handleUnbind(parsed.rest);
+      }
+      if (parsed.name === "shell-init") {
+        return handleShellInit(parsed.rest);
+      }
+      if (parsed.name === "status") {
+        return handleStatus(parsed.rest);
       }
       process.stderr.write(`cswitch ${parsed.name}: not implemented yet\n`);
       return EXIT_RUNTIME;

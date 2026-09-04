@@ -169,6 +169,58 @@ export function ensurePluginsJunction(home: string, cswitchHome: string, record:
   return { kind: "recreated" };
 }
 
+export type JunctionInspection =
+  | { kind: "ok" }
+  | { kind: "missing" }
+  | { kind: "broken"; target: string }
+  | { kind: "wrong-target"; target: string }
+  | { kind: "not-a-junction" };
+
+/**
+ * Read-only counterpart to ensurePluginsJunction, for `status` (spec §6.6): reports what's
+ * there without creating, recreating, or deleting anything — status never touches disk state.
+ */
+export function inspectPluginsJunction(home: string, cswitchHome: string, record: ProfileRecord): JunctionInspection {
+  const target = sharedPluginsPath(home);
+  const linkPath = profilePluginsPath(cswitchHome, record);
+
+  let stat;
+  try {
+    stat = lstatSync(linkPath);
+  } catch {
+    return { kind: "missing" };
+  }
+
+  if (!stat.isSymbolicLink()) {
+    // A real, empty directory is harmless (spec §5.3: ensurePluginsJunction replaces it
+    // silently on the next launch, exactly like a missing entry) — only a real, non-empty
+    // directory actually blocks a launch, so only that case is worth a hygiene warning.
+    if (stat.isDirectory() && readdirSync(linkPath).length === 0) {
+      return { kind: "missing" };
+    }
+    return { kind: "not-a-junction" };
+  }
+
+  let currentTarget: string;
+  try {
+    currentTarget = readlinkSync(linkPath);
+  } catch {
+    return { kind: "broken", target };
+  }
+
+  if (currentTarget !== target) {
+    return { kind: "wrong-target", target: currentTarget };
+  }
+
+  try {
+    lstatSync(currentTarget);
+  } catch {
+    return { kind: "broken", target: currentTarget };
+  }
+
+  return { kind: "ok" };
+}
+
 const WIN32_EXECUTABLE_EXTENSIONS = /\.(cmd|exe|ps1|bat)$/i;
 
 /** Known Claude Code subcommands `--settings` isn't accepted on (spec §5.4) — a stale list
