@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
+import { ConfigError, cswitchHomePath, readConfig, type Config } from "./config.js";
 import { EXIT_OK, EXIT_RUNTIME, EXIT_USAGE } from "./exit-codes.js";
 import { HELP_TEXT } from "./help-text.js";
 import { parseTopLevel } from "./args.js";
@@ -7,6 +8,7 @@ import { resolveHome } from "./home.js";
 import { createProcessIo } from "./io.js";
 import { parseInitArgs } from "./init-args.js";
 import { runInit } from "./init.js";
+import { runLaunch } from "./launch.js";
 import { readVersion } from "./version.js";
 
 async function handleInit(rest: string[]): Promise<number> {
@@ -49,8 +51,26 @@ export async function run(argv: string[]): Promise<number> {
       return EXIT_RUNTIME;
     }
     case "launch": {
-      process.stderr.write("cswitch: launching a profile is not implemented yet\n");
-      return EXIT_RUNTIME;
+      const home = resolveHome(process.env);
+      const cswitchHome = cswitchHomePath(home);
+
+      let config: Config | undefined;
+      try {
+        config = readConfig(cswitchHome);
+      } catch (err) {
+        process.stderr.write(`${(err as ConfigError).message}\n`);
+        return EXIT_RUNTIME;
+      }
+
+      return runLaunch({
+        home,
+        cswitchHome,
+        config,
+        profileName: parsed.profile,
+        quiet: parsed.quiet,
+        command: parsed.command,
+        env: process.env,
+      });
     }
   }
 }
