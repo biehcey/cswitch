@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { HELP_TEXT } from "../src/help-text.js";
+import { renderShellInit } from "../src/shell-init.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cliEntry = path.join(here, "..", "src", "cli.ts");
@@ -54,7 +55,33 @@ test("cswitch work --help is an error; the correct form is cswitch --help", () =
 
 test("tokens after -- are passed through untouched, e.g. -q reaches the child, not cswitch", () => {
   const result = runCli(["work", "--", "node", "-e", "console.log(process.argv.slice(2).join(','))", "-q"]);
-  // cswitch itself has no launcher yet (ticket 03); this only asserts that
-  // parsing did not error out on `-q` appearing after `--`.
+  // "work" is not a registered profile in this fake, uninitialized home, so
+  // the launcher fails with exit 70; this only asserts that parsing did not
+  // error out (exit 64) on `-q` appearing after `--`.
   assert.notEqual(result.status, 64);
+});
+
+test("cswitch shell-init zsh prints the bash/zsh function and only that, nothing written to disk", () => {
+  const result = runCli(["shell-init", "zsh"]);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout.trim(), renderShellInit("zsh"));
+  assert.equal(result.stderr, "");
+});
+
+test("cswitch shell-init powershell prints the PowerShell fallback with -CommandType Application", () => {
+  const result = runCli(["shell-init", "powershell"]);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /-CommandType Application/);
+});
+
+test("cswitch shell-init with no shell name is a usage error, exit 64, not guessed from env", () => {
+  const result = runCli(["shell-init"]);
+  assert.equal(result.status, 64);
+  assert.match(result.stderr, /shell name is required/);
+});
+
+test("cswitch shell-init cmd is rejected: cmd.exe is out of scope", () => {
+  const result = runCli(["shell-init", "cmd"]);
+  assert.equal(result.status, 64);
+  assert.match(result.stderr, /unsupported shell/);
 });
