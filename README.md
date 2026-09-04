@@ -7,7 +7,7 @@ directory you're in.
 
 ```
 $ claude
-cswitch: work · batuhan.ardic@mikrokom.com · Mikrokom
+cswitch: work · abcdef@company.com · xyzCompany
 ```
 
 ## Install
