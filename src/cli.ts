@@ -13,6 +13,8 @@ import { createProcessIo } from "./io.js";
 import { parseInitArgs } from "./init-args.js";
 import { runInit } from "./init.js";
 import { runLaunch } from "./launch.js";
+import { parseRemoveArgs, REMOVE_HELP_TEXT } from "./remove-args.js";
+import { runRemove } from "./remove.js";
 import { parseShellInitArgs } from "./shell-init-args.js";
 import { renderShellInit } from "./shell-init.js";
 import { parseStatusArgs } from "./status-args.js";
@@ -44,6 +46,20 @@ function handleAdd(rest: string[]): number {
   }
 
   return runAdd({ home: resolveHome(process.env), name: parsed.name, bindDir: parsed.bindDir });
+}
+
+async function handleRemove(rest: string[]): Promise<number> {
+  const parsed = parseRemoveArgs(rest);
+  if (parsed.kind === "help") {
+    process.stdout.write(`${REMOVE_HELP_TEXT}\n`);
+    return EXIT_OK;
+  }
+  if (parsed.kind === "error") {
+    process.stderr.write(`${parsed.message}\n`);
+    return EXIT_USAGE;
+  }
+
+  return runRemove({ home: resolveHome(process.env), name: parsed.name, force: parsed.force, io: createProcessIo() });
 }
 
 async function handleBind(rest: string[]): Promise<number> {
@@ -115,6 +131,9 @@ export async function run(argv: string[]): Promise<number> {
       }
       if (parsed.name === "add") {
         return handleAdd(parsed.rest);
+      }
+      if (parsed.name === "remove") {
+        return handleRemove(parsed.rest);
       }
       if (parsed.name === "bind") {
         return handleBind(parsed.rest);

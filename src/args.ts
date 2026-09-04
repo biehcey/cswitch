@@ -1,6 +1,7 @@
 export const SUBCOMMAND_NAMES = [
   "init",
   "add",
+  "remove",
   "bind",
   "unbind",
   "status",

@@ -11,6 +11,7 @@ USAGE
 SUBCOMMANDS
   init                 set cswitch up on this machine, adopting ~/.claude as-is
   add <name>           create a new profile
+  remove <name>        delete a profile
   bind <dir> <name>    bind a directory prefix to a profile
   unbind <dir>         remove a binding
   status               show what runs here, and every profile
