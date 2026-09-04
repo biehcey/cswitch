@@ -12,6 +12,7 @@ import { resolveHome } from "./home.js";
 import { createProcessIo } from "./io.js";
 import { parseInitArgs } from "./init-args.js";
 import { runInit } from "./init.js";
+import { runInteractive } from "./interactive.js";
 import { runLaunch } from "./launch.js";
 import { parseRemoveArgs, REMOVE_HELP_TEXT } from "./remove-args.js";
 import { runRemove } from "./remove.js";
@@ -108,7 +109,34 @@ function handleUnbind(rest: string[]): number {
   return runUnbind({ home: resolveHome(process.env), dir: parsed.dir });
 }
 
+/**
+ * Interactive Mode's entry condition (spec §10.1): argument-less **and** a real
+ * TTY. A non-TTY argument-less call (pipe, CI, `exec()`) falls through to
+ * `parseTopLevel`'s existing empty-argv handling, which already yields the
+ * help text + exit 64.
+ */
+function shouldEnterInteractiveMode(argv: string[]): boolean {
+  return argv.length === 0 && process.stdin.isTTY === true;
+}
+
+async function handleInteractive(): Promise<number> {
+  const home = resolveHome(process.env);
+  return runInteractive({
+    home,
+    cswitchHome: cswitchHomePath(home),
+    env: process.env,
+    cwd: process.cwd(),
+    io: createProcessIo(),
+    stdin: process.stdin,
+    write: (text) => process.stdout.write(text),
+  });
+}
+
 export async function run(argv: string[]): Promise<number> {
+  if (shouldEnterInteractiveMode(argv)) {
+    return handleInteractive();
+  }
+
   const parsed = parseTopLevel(argv);
 
   switch (parsed.kind) {
