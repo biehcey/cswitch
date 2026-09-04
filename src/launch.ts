@@ -1,4 +1,5 @@
 import spawn from "cross-spawn";
+import { lstatSync, mkdirSync, readdirSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { formatAccount, readAccount, type AccountDisplay } from "./account.js";
 import { profilesDirPath, type Config, type ProfileRecord } from "./config.js";
@@ -61,6 +62,66 @@ export function buildChildEnv(baseEnv: NodeJS.ProcessEnv, cswitchHome: string, r
     env.CLAUDE_CONFIG_DIR = configDir;
   }
   return env;
+}
+
+/** Path to the shared plugins store every non-in-place profile junctions into (spec §3). */
+export function sharedPluginsPath(home: string): string {
+  return path.join(home, ".claude", "plugins");
+}
+
+/** Path to a profile's own `plugins/` entry — a junction, unless blocked (spec §5.3). */
+export function profilePluginsPath(cswitchHome: string, record: ProfileRecord): string {
+  return path.join(profilesDirPath(cswitchHome), record.name, "plugins");
+}
+
+export type JunctionEnsureResult =
+  | { kind: "created" }
+  | { kind: "recreated" }
+  | { kind: "ok" }
+  | { kind: "blocked" };
+
+/**
+ * Ensures `<profile>/plugins` is a junction to the shared plugins store (spec
+ * §5.3), run on every launch for non-in-place profiles. Missing → created
+ * silently. A junction whose target is wrong or broken → recreated. A real,
+ * non-empty directory is never touched — cswitch never deletes a `plugins/`
+ * the user set up by hand; an empty real directory is treated like "missing"
+ * since it holds nothing to lose.
+ */
+export function ensurePluginsJunction(home: string, cswitchHome: string, record: ProfileRecord): JunctionEnsureResult {
+  const target = sharedPluginsPath(home);
+  const linkPath = profilePluginsPath(cswitchHome, record);
+  mkdirSync(path.dirname(linkPath), { recursive: true });
+
+  let stat;
+  try {
+    stat = lstatSync(linkPath);
+  } catch {
+    symlinkSync(target, linkPath, "junction");
+    return { kind: "created" };
+  }
+
+  if (stat.isSymbolicLink()) {
+    let currentTarget: string | undefined;
+    try {
+      currentTarget = readlinkSync(linkPath);
+    } catch {
+      currentTarget = undefined;
+    }
+    if (currentTarget === target) {
+      return { kind: "ok" };
+    }
+    unlinkSync(linkPath);
+    symlinkSync(target, linkPath, "junction");
+    return { kind: "recreated" };
+  }
+
+  if (readdirSync(linkPath).length > 0) {
+    return { kind: "blocked" };
+  }
+  rmdirSync(linkPath);
+  symlinkSync(target, linkPath, "junction");
+  return { kind: "recreated" };
 }
 
 /**
@@ -147,6 +208,16 @@ export async function runLaunch(params: RunLaunchParams): Promise<number> {
   }
 
   const { record, usedDefault } = resolution;
+
+  if (!record.inPlace) {
+    const junction = ensurePluginsJunction(home, cswitchHome, record);
+    if (junction.kind === "blocked") {
+      process.stderr.write(
+        `cswitch: ~/.cswitch/profiles/${record.name}/plugins is a real, non-empty directory — refusing to replace it. Move it aside or remove it, then try again.\n`,
+      );
+      return EXIT_RUNTIME;
+    }
+  }
 
   if (!isQuiet(quiet, env)) {
     const account = readAccount(profileClaudeJsonPath(home, cswitchHome, record));
