@@ -1,6 +1,6 @@
 {
   "name": "@biehcey/cswitch",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Run multiple Claude Code accounts on one machine",
   "license": "MIT",
   "type": "module",
