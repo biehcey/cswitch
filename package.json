@@ -3,6 +3,10 @@
   "version": "0.1.2",
   "description": "Run multiple Claude Code accounts on one machine",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/biehcey/cswitch.git"
+  },
   "type": "module",
   "bin": {
     "cswitch": "dist/cli.js"
