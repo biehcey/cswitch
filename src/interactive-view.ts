@@ -9,10 +9,13 @@ const BOLD = "\x1b[1m";
 const CYAN = "\x1b[36m";
 const DIM = "\x1b[2m";
 const GREEN = "\x1b[32m";
+const RED = "\x1b[31m";
 
 export const CLEAR_SCREEN = "\x1b[2J\x1b[H";
 
-export const LIST_FOOTER_HINT = "[enter] run   [esc] quit";
+export const LIST_FOOTER_HINT = "[enter] run   [a]dd   [esc] quit";
+
+export const ADD_FOOTER_HINT = "[enter] create   [esc] cancel";
 
 function pad(text: string, width: number): string {
   return text.length >= width ? text : text + " ".repeat(width - text.length);
@@ -49,4 +52,24 @@ export function renderProfileList(profiles: ProfileStatus[], selectedIndex: numb
   const footer = `${DIM}${LIST_FOOTER_HINT}${RESET}`;
 
   return [header, ...rows, "", footer].join("\n") + "\n";
+}
+
+/**
+ * Renders the add screen (spec §10.6): a single name prompt and nothing else —
+ * there is deliberately no `--bind` equivalent here, that stays with the `bind`
+ * command. `error` is the message from the same validation and conflict rules
+ * the flag-based `add` uses (§6.1/§6.3); showing it in place is what keeps the
+ * flow alive instead of dropping the user back to the list. Pure and
+ * TTY-independent, like `renderProfileList`.
+ */
+export function renderAddScreen(draftName: string, error: string | undefined): string {
+  const lines = [`${BOLD}new profile${RESET}`, "", `  name: ${draftName}${CYAN}_${RESET}`];
+
+  if (error !== undefined) {
+    lines.push("", `  ${RED}${error}${RESET}`);
+  }
+
+  lines.push("", `${DIM}${ADD_FOOTER_HINT}${RESET}`);
+
+  return lines.join("\n") + "\n";
 }

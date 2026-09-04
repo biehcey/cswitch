@@ -6,45 +6,47 @@ import { EXIT_OK, EXIT_RUNTIME, EXIT_USAGE } from "./exit-codes.js";
 import { ensurePluginsJunction } from "./launch.js";
 import { validateProfileName } from "./profile-name.js";
 
-export interface RunAddParams {
+export interface AddProfileParams {
   home: string;
   name: string;
   bindDir?: string;
 }
 
+export type AddProfileOutcome =
+  | { ok: true; boundDir: string | undefined }
+  | { ok: false; message: string; exitCode: number };
+
 /**
- * `cswitch add <name>` (spec §6.3): pure preparation, never interactive. The
- * chain — directory, plugins/ junction, config record — is atomic: if the
- * junction step fails, the freshly created directory is removed and nothing
- * is written to config.json, so the machine looks exactly as it did before.
+ * The `add` chain itself (spec §6.3): directory, plugins/ junction, config
+ * record — atomic, in that a failing junction step removes the freshly created
+ * directory and writes nothing to config.json, so the machine looks exactly as
+ * it did before. It reports failures as a message instead of writing them, so
+ * the flag-based command (`runAdd`) and Interactive Mode's add screen (§10.6)
+ * run the *same* chain and only differ in where the message is shown.
  */
-export function runAdd(params: RunAddParams): number {
+export function addProfile(params: AddProfileParams): AddProfileOutcome {
   const { home, name, bindDir } = params;
   const cswitchHome = cswitchHomePath(home);
 
   const nameError = validateProfileName(name);
   if (nameError) {
-    process.stderr.write(`${nameError}\n`);
-    return EXIT_USAGE;
+    return { ok: false, message: nameError, exitCode: EXIT_USAGE };
   }
 
   let config: Config | undefined;
   try {
     config = readConfig(cswitchHome);
   } catch (err) {
-    process.stderr.write(`${(err as ConfigError).message}\n`);
-    return EXIT_RUNTIME;
+    return { ok: false, message: (err as ConfigError).message, exitCode: EXIT_RUNTIME };
   }
 
   if (config === undefined) {
-    process.stderr.write('cswitch: ~/.cswitch not found. Run "cswitch init" first.\n');
-    return EXIT_RUNTIME;
+    return { ok: false, message: 'cswitch: ~/.cswitch not found. Run "cswitch init" first.', exitCode: EXIT_RUNTIME };
   }
 
   const profileDir = path.join(profilesDirPath(cswitchHome), name);
   if (config.profiles.some((p) => p.name === name) || existsSync(profileDir)) {
-    process.stderr.write(`cswitch: profile "${name}" already exists\n`);
-    return EXIT_USAGE;
+    return { ok: false, message: `cswitch: profile "${name}" already exists`, exitCode: EXIT_USAGE };
   }
 
   // Validated before anything is written (spec §6.3 reuses bind's validation, §4.1):
@@ -55,15 +57,15 @@ export function runAdd(params: RunAddParams): number {
     try {
       canonicalBindDir = canonicalizeDir(bindDir, home);
     } catch (err) {
-      process.stderr.write(`${(err as BindingPathError).message}\n`);
-      return EXIT_RUNTIME;
+      return { ok: false, message: (err as BindingPathError).message, exitCode: EXIT_RUNTIME };
     }
     const existing = config.bindings.find((b) => isSamePrefix(b.prefix, canonicalBindDir!));
     if (existing) {
-      process.stderr.write(
-        `cswitch: "${canonicalBindDir}" is already bound to "${existing.profile}" — use \`cswitch bind --force\` to overwrite\n`,
-      );
-      return EXIT_RUNTIME;
+      return {
+        ok: false,
+        message: `cswitch: "${canonicalBindDir}" is already bound to "${existing.profile}" — use \`cswitch bind --force\` to overwrite`,
+        exitCode: EXIT_RUNTIME,
+      };
     }
   }
 
@@ -73,8 +75,11 @@ export function runAdd(params: RunAddParams): number {
     ensurePluginsJunction(home, cswitchHome, { name });
   } catch (err) {
     rmSync(profileDir, { recursive: true, force: true });
-    process.stderr.write(`cswitch: failed to junction plugins/ for "${name}": ${(err as Error).message}\n`);
-    return EXIT_RUNTIME;
+    return {
+      ok: false,
+      message: `cswitch: failed to junction plugins/ for "${name}": ${(err as Error).message}`,
+      exitCode: EXIT_RUNTIME,
+    };
   }
 
   const nextConfig: Config = {
@@ -85,13 +90,31 @@ export function runAdd(params: RunAddParams): number {
   };
   writeConfig(cswitchHome, nextConfig);
 
+  return { ok: true, boundDir: canonicalBindDir };
+}
+
+export interface RunAddParams {
+  home: string;
+  name: string;
+  bindDir?: string;
+}
+
+/** `cswitch add <name>` (spec §6.3): `addProfile`'s chain plus this command's own output. */
+export function runAdd(params: RunAddParams): number {
+  const outcome = addProfile(params);
+  if (!outcome.ok) {
+    process.stderr.write(`${outcome.message}\n`);
+    return outcome.exitCode;
+  }
+
+  const { name } = params;
   const lines = [
     `  ✓ created ~/.cswitch/profiles/${name}`,
     "  ✓ junctioned plugins/ to ~/.claude/plugins",
     `  ✓ registered "${name}"`,
   ];
-  if (canonicalBindDir !== undefined) {
-    lines.push(`  ✓ bound ${canonicalBindDir} to ${name}`);
+  if (outcome.boundDir !== undefined) {
+    lines.push(`  ✓ bound ${outcome.boundDir} to ${name}`);
   }
   process.stdout.write(`\n${lines.join("\n")}\n`);
   process.stdout.write(`\nNext: cswitch ${name} -- claude   (the login flow opens there)\n`);
