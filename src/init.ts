@@ -19,7 +19,6 @@ export interface RunInitParams {
   nameFlag: string | undefined;
   io: Io;
   env: NodeJS.ProcessEnv;
-  scriptPath: string;
 }
 
 function reportLine(taken: boolean, text: string): string {
@@ -38,7 +37,7 @@ const ANNOUNCEMENT = `cswitch is about to:
 `;
 
 export async function runInit(params: RunInitParams): Promise<number> {
-  const { home, nameFlag, io, env, scriptPath } = params;
+  const { home, nameFlag, io, env } = params;
   const cswitchHome = cswitchHomePath(home);
   const claudeJsonPath = path.join(home, ".claude.json");
 
@@ -114,7 +113,7 @@ export async function runInit(params: RunInitParams): Promise<number> {
 
   io.write(`${lines.join("\n")}\n`);
 
-  if (!isInGlobalBinDir(scriptPath, env)) {
+  if (!isInGlobalBinDir(env)) {
     io.write(
       `\n${warnLine(
         'cswitch is not running from a global bin directory — the shell hook ("cswitch shell-init") will silently fall back to the real claude. Install with "npm i -g cswitch".',

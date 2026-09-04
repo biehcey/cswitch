@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { EXIT_OK, EXIT_RUNTIME, EXIT_USAGE } from "./exit-codes.js";
 import { HELP_TEXT } from "./help-text.js";
 import { parseTopLevel } from "./args.js";
@@ -21,7 +21,6 @@ async function handleInit(rest: string[]): Promise<number> {
     nameFlag: parsed.name,
     io: createProcessIo(),
     env: process.env,
-    scriptPath: process.argv[1] ?? fileURLToPath(import.meta.url),
   });
 }
 
@@ -57,5 +56,11 @@ export async function run(argv: string[]): Promise<number> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  run(process.argv.slice(2)).then((code) => process.exit(code));
+  run(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (err) => {
+      process.stderr.write(`cswitch: unexpected error: ${(err as Error).message}\n`);
+      process.exit(EXIT_RUNTIME);
+    },
+  );
 }

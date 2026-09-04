@@ -1,35 +1,31 @@
-import { realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
-/**
- * Whether the running cswitch script lives in a directory that's on PATH —
- * a cheap proxy for "installed as a global bin" (spec §6.2 step 7). Used to
- * warn when the Shell Hook wouldn't find `cswitch` (e.g. running via `npx`
- * or straight from a source checkout, as the test suite does).
- */
-export function isInGlobalBinDir(
-  scriptPath: string,
-  env: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform = process.platform,
-): boolean {
-  let resolvedScriptDir: string;
-  try {
-    resolvedScriptDir = path.dirname(realpathSync.native(scriptPath));
-  } catch {
-    return false;
-  }
+const WINDOWS_EXECUTABLE_NAMES = ["cswitch", "cswitch.cmd", "cswitch.ps1", "cswitch.exe"];
+const POSIX_EXECUTABLE_NAMES = ["cswitch"];
 
-  const pathVarName = platform === "win32" ? (env.PATH !== undefined ? "PATH" : "Path") : "PATH";
-  const pathValue = env[pathVarName] ?? "";
+/**
+ * Whether a `cswitch` executable is discoverable on PATH — the same check
+ * the Shell Hook's own guard performs (`command -v cswitch`). Used to warn
+ * when the hook wouldn't find it (spec §6.2 step 7), e.g. running via `npx`
+ * or straight from a source checkout, as the test suite does.
+ *
+ * This deliberately does not require the discovered executable to resolve
+ * back to the currently running script: on Windows, a global npm install
+ * puts a `cswitch.cmd` shim in the global bin dir that dispatches to the
+ * package's real entry point elsewhere, so no realpath of the shim would
+ * ever match the running script's own path.
+ */
+export function isInGlobalBinDir(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): boolean {
+  const pathValue = platform === "win32" ? (env.PATH ?? env.Path ?? "") : (env.PATH ?? "");
   const dirs = pathValue.split(path.delimiter).filter((d) => d.length > 0);
+  const candidateNames = platform === "win32" ? WINDOWS_EXECUTABLE_NAMES : POSIX_EXECUTABLE_NAMES;
 
   for (const dir of dirs) {
-    try {
-      if (realpathSync.native(dir) === resolvedScriptDir) {
+    for (const name of candidateNames) {
+      if (existsSync(path.join(dir, name))) {
         return true;
       }
-    } catch {
-      continue;
     }
   }
   return false;

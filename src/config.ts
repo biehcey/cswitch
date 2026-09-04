@@ -117,9 +117,8 @@ export function ensureCswitchTree(cswitchHome: string): { createdHome: boolean; 
   const createdHome = !existsSync(cswitchHome);
   const createdProfilesDir = !existsSync(profilesDirPath(cswitchHome));
   if (createdProfilesDir) {
+    // profiles/ is nested under cswitchHome, so this also creates cswitchHome when it's missing.
     mkdirSync(profilesDirPath(cswitchHome), { recursive: true });
-  } else if (createdHome) {
-    mkdirSync(cswitchHome, { recursive: true });
   }
   return { createdHome, createdProfilesDir };
 }

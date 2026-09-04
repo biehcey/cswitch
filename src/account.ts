@@ -16,8 +16,12 @@ export function readAccount(claudeJsonPath: string): AccountDisplay {
   let raw: string;
   try {
     raw = readFileSync(claudeJsonPath, "utf8");
-  } catch {
-    return { kind: "not-logged-in" };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { kind: "not-logged-in" };
+    }
+    // File exists but couldn't be read (permissions, I/O error, ...): a failure signal, not "no account".
+    return { kind: "unknown" };
   }
 
   let data: unknown;
