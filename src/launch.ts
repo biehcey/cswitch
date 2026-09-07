@@ -92,6 +92,14 @@ export function profileClaudeJsonPath(home: string, cswitchHome: string, record:
   return path.join(profilesDirPath(cswitchHome), record.name, ".claude.json");
 }
 
+/** Where this profile's own `settings.json` lives — the in-place profile keeps Claude Code's original. */
+export function profileSettingsPath(home: string, cswitchHome: string, record: ProfileRecord): string {
+  if (record.inPlace) {
+    return path.join(home, ".claude", "settings.json");
+  }
+  return path.join(profilesDirPath(cswitchHome), record.name, "settings.json");
+}
+
 /**
  * Builds the child process environment: sets `CLAUDE_CONFIG_DIR` for a
  * non-in-place profile, or strips any inherited value for an in-place one.

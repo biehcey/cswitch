@@ -4,6 +4,7 @@ export const SUBCOMMAND_NAMES = [
   "remove",
   "bind",
   "unbind",
+  "copy",
   "status",
   "shell-init",
 ] as const;

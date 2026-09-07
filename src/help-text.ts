@@ -22,6 +22,7 @@ SUBCOMMANDS
   bind <dir> <name>    bind a directory prefix to a profile
   bind --list          list every binding
   unbind <dir>         remove a binding
+  copy <src> <dst>     copy enabled plugins and MCP servers between profiles
   status               show what runs here, and every profile
   shell-init <shell>   print the \`claude\` wrapper for your shell
 

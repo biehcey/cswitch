@@ -4,6 +4,8 @@ import { parseAddArgs } from "./add-args.js";
 import { runAdd } from "./add.js";
 import { parseBindArgs } from "./bind-args.js";
 import { runBind, runBindList } from "./bind.js";
+import { parseCopyArgs } from "./copy-args.js";
+import { runCopy } from "./copy.js";
 import { ConfigError, cswitchHomePath, readConfig, type Config } from "./config.js";
 import { EXIT_OK, EXIT_RUNTIME, EXIT_USAGE } from "./exit-codes.js";
 import { HELP_TEXT } from "./help-text.js";
@@ -76,6 +78,23 @@ async function handleBind(rest: string[]): Promise<number> {
   }
 
   return runBind({ home, dir: parsed.dir, profileName: parsed.profile, force: parsed.force, io: createProcessIo() });
+}
+
+function handleCopy(rest: string[]): number {
+  const parsed = parseCopyArgs(rest);
+  if (parsed.kind === "error") {
+    process.stderr.write(`${parsed.message}\n`);
+    return EXIT_USAGE;
+  }
+
+  return runCopy({
+    home: resolveHome(process.env),
+    source: parsed.source,
+    target: parsed.target,
+    plugins: parsed.plugins,
+    mcp: parsed.mcp,
+    dryRun: parsed.dryRun,
+  });
 }
 
 function handleShellInit(rest: string[]): number {
@@ -168,6 +187,9 @@ export async function run(argv: string[]): Promise<number> {
       }
       if (parsed.name === "unbind") {
         return handleUnbind(parsed.rest);
+      }
+      if (parsed.name === "copy") {
+        return handleCopy(parsed.rest);
       }
       if (parsed.name === "shell-init") {
         return handleShellInit(parsed.rest);
