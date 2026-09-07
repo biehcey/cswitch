@@ -1,6 +1,7 @@
 export const HELP_TEXT = `cswitch — run multiple Claude Code accounts on one machine
 
 USAGE
+  cswitch                                      open the interactive profile list
   cswitch [<profile>] -- <command> [args...]   run a command in a profile's environment
   cswitch <subcommand> [options]
 
@@ -8,11 +9,17 @@ USAGE
   match, the default profile is used. Naming a profile always overrides the binding.
   Everything after \`--\` is passed through untouched.
 
+  With no arguments on a terminal, cswitch opens the interactive profile list: arrow
+  keys move, [enter] runs claude in the selected profile, [a] adds, [d] removes, [esc]
+  quits. It runs setup first if ~/.cswitch does not exist yet. Off a terminal — a pipe,
+  a script, CI — there is no one to drive it, so this help is printed instead.
+
 SUBCOMMANDS
   init                 set cswitch up on this machine, adopting ~/.claude as-is
   add <name>           create a new profile
   remove <name>        delete a profile
   bind <dir> <name>    bind a directory prefix to a profile
+  bind --list          list every binding
   unbind <dir>         remove a binding
   status               show what runs here, and every profile
   shell-init <shell>   print the \`claude\` wrapper for your shell
