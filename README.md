@@ -97,13 +97,23 @@ Running `cswitch` with no arguments (on a real terminal) opens the profile list:
   work           you@company.com · Acme Inc           logged-in     *
 > personal       you@gmail.com                        logged-in
 
-[enter] run   [a]dd   [d] remove   [esc] quit
+[enter] run   [c]ontinue   [r]esume   [m]cp   [a]dd   [d] remove   [esc] quit
 ```
 
 Arrow keys move, `enter` runs `claude` in the selected profile, `a` adds a profile, `d` deletes
-one, `esc` quits. Selecting a profile here is a one-off launch: nothing is written and no binding
-is touched. The default profile can't be deleted from here — backing that out means removing
-`~/.cswitch` entirely.
+one, `esc` quits. Three more keys run the `claude` invocations you reach for daily, in the
+selected profile:
+
+| Key | Runs |
+| --- | --- |
+| `c` | `claude --continue` |
+| `r` | `claude --resume` |
+| `m` | `claude mcp list` |
+
+Selecting a profile here is a one-off launch: nothing is written and no binding is touched. When
+the command you started finishes, `cswitch` finishes with it — the list does not reopen. The
+default profile can't be deleted from here — backing that out means removing `~/.cswitch`
+entirely — but every launch key works on it like any other row.
 
 In a pipe, a script, or CI there is no terminal to drive, so a bare `cswitch` prints help and
 exits instead.

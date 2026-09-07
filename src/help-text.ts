@@ -10,9 +10,10 @@ USAGE
   Everything after \`--\` is passed through untouched.
 
   With no arguments on a terminal, cswitch opens the interactive profile list: arrow
-  keys move, [enter] runs claude in the selected profile, [a] adds, [d] removes, [esc]
-  quits. It runs setup first if ~/.cswitch does not exist yet. Off a terminal — a pipe,
-  a script, CI — there is no one to drive it, so this help is printed instead.
+  keys move, [enter] runs claude in the selected profile, [c] --continue, [r] --resume,
+  [m] mcp list, [a] adds, [d] removes, [esc] quits. It runs setup first if ~/.cswitch
+  does not exist yet. Off a terminal — a pipe, a script, CI — there is no one to drive
+  it, so this help is printed instead.
 
 SUBCOMMANDS
   init                 set cswitch up on this machine, adopting ~/.claude as-is

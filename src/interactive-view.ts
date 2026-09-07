@@ -1,4 +1,5 @@
 import { formatAccount } from "./account.js";
+import { LAUNCH_ACTIONS, type LaunchAction } from "./interactive-actions.js";
 import type { ProfileStatus } from "./status.js";
 import { loginStateOf } from "./status.js";
 
@@ -22,7 +23,15 @@ export const CLEAR_SCREEN = "\x1b[2J\x1b[H";
 export const HIDE_CURSOR = "\x1b[?25l";
 export const SHOW_CURSOR = "\x1b[?25h";
 
-export const LIST_FOOTER_HINT = "[enter] run   [a]dd   [d] remove   [esc] quit";
+/** Renders one launch action as its footer hint, bracketing the key inside its
+ * own label: `continue` → `[c]ontinue`. */
+function actionHint(action: LaunchAction): string {
+  return `[${action.key}]${action.label.slice(1)}`;
+}
+
+// Built from LAUNCH_ACTIONS rather than written out, so the footer and the keys
+// `interactive.ts` actually dispatches can never drift apart (spec §10.3).
+export const LIST_FOOTER_HINT = ["[enter] run", ...LAUNCH_ACTIONS.map(actionHint), "[a]dd", "[d] remove", "[esc] quit"].join("   ");
 
 export const ADD_FOOTER_HINT = "[enter] create   [esc] cancel";
 

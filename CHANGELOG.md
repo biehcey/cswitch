@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-07
+
+- Interactive mode's profile list gained three one-key launches, alongside `enter`: `c` runs
+  `claude --continue`, `r` runs `claude --resume`, and `m` runs `claude mcp list` — each in the
+  selected profile, including the default one. They take the same one-off launch path `enter`
+  does, so nothing is written and no binding is touched, and `cswitch` still ends when the
+  command it started ends. `--dangerously-skip-permissions` is deliberately not on a key; see
+  `docs/adr/0001-interactive-mode-launch-keys.md`.
+
 ## [0.1.6] - 2026-09-07
 
 - Rewrote `README.md` against the current command surface: interactive mode, the full command

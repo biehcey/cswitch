@@ -1,6 +1,7 @@
 import { addProfile, type AddProfileOutcome, type AddProfileParams } from "./add.js";
 import { ConfigError, readConfig, type Config } from "./config.js";
 import { EXIT_OK, EXIT_RUNTIME } from "./exit-codes.js";
+import { LAUNCH_ACTIONS } from "./interactive-actions.js";
 import type { Io } from "./io.js";
 import { runInit } from "./init.js";
 import { CLEAR_SCREEN, HIDE_CURSOR, SHOW_CURSOR, renderAddScreen, renderProfileList, renderRemoveScreen } from "./interactive-view.js";
@@ -182,6 +183,33 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
       return true;
     };
 
+    /**
+     * Select-run (spec §10.5): hands the selected Profile and a command line to
+     * the Launcher, and ends this screen with whatever the child exits with —
+     * for every key that starts something, Enter and the §10.3 launch keys
+     * alike. The cursor is restored before `claude` takes over the terminal, so
+     * the child never inherits a hidden one. `finish` can't be used here: the
+     * exit code is whatever the launch resolves to, later.
+     */
+    const runInProfile = (command: string[]) => {
+      const profile = profiles[selectedIndex]!;
+      keyboard.stop();
+      write(SHOW_CURSOR);
+      launch({
+        home,
+        cswitchHome,
+        config,
+        profileName: profile.name,
+        quiet: false,
+        command,
+        env,
+        cwd,
+      }).then(resolve, (err: unknown) => {
+        process.stderr.write(`cswitch: unexpected error while launching: ${(err as Error).message}\n`);
+        resolve(EXIT_RUNTIME);
+      });
+    };
+
     const keyboard: KeyboardInput = listen(
       stdin,
       (key, char) => {
@@ -298,29 +326,10 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
             listNotice = undefined;
             render();
             return;
-          case "enter": {
-            const profile = profiles[selectedIndex]!;
-            // The cursor is restored before `claude` takes over the terminal, so
-            // the child never inherits a hidden one. `finish` can't be used here:
-            // the exit code is whatever the launch resolves to, later.
-            keyboard.stop();
-            write(SHOW_CURSOR);
-            launch({
-              home,
-              cswitchHome,
-              config,
-              profileName: profile.name,
-              quiet: false,
-              command: ["claude"],
-              env,
-              cwd,
-            }).then(resolve, (err: unknown) => {
-              process.stderr.write(`cswitch: unexpected error while launching: ${(err as Error).message}\n`);
-              resolve(EXIT_RUNTIME);
-            });
+          case "enter":
+            runInProfile(["claude"]);
             return;
-          }
-          case "char":
+          case "char": {
             // The Default Profile is never offered for removal, so `d` on it is
             // a no-op rather than a rejected confirmation — that is what keeps
             // `init`'s "never touches ~/.claude" promise (spec §10.7).
@@ -330,8 +339,18 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
               removeError = undefined;
               listNotice = undefined;
               render();
+              return;
+            }
+            // The one-key launches (spec §10.3): the same select-run path Enter
+            // takes, only with a different command line. They have no Default
+            // Profile exception the way `d` does — none of them touches
+            // `~/.claude`, they only start a process that reads it.
+            const action = LAUNCH_ACTIONS.find((candidate) => candidate.key === char);
+            if (action !== undefined) {
+              runInProfile(action.command);
             }
             return;
+          }
           default:
             return;
         }
