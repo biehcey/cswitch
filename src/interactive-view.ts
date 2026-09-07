@@ -14,6 +14,14 @@ const YELLOW = "\x1b[33m";
 
 export const CLEAR_SCREEN = "\x1b[2J\x1b[H";
 
+// Every screen draws its own caret where one belongs (the add screen's `_`), so
+// the terminal's real cursor is nothing but a stray block parked under the table
+// on a keypress-driven screen. It is hidden for the whole session and restored
+// on every exit path — Ctrl-C included — because a terminal left with an
+// invisible cursor is as unusable as one left in raw mode (spec §10.3).
+export const HIDE_CURSOR = "\x1b[?25l";
+export const SHOW_CURSOR = "\x1b[?25h";
+
 export const LIST_FOOTER_HINT = "[enter] run   [a]dd   [d] remove   [esc] quit";
 
 export const ADD_FOOTER_HINT = "[enter] create   [esc] cancel";

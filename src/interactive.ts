@@ -3,7 +3,7 @@ import { ConfigError, readConfig, type Config } from "./config.js";
 import { EXIT_OK, EXIT_RUNTIME } from "./exit-codes.js";
 import type { Io } from "./io.js";
 import { runInit } from "./init.js";
-import { CLEAR_SCREEN, renderAddScreen, renderProfileList, renderRemoveScreen } from "./interactive-view.js";
+import { CLEAR_SCREEN, HIDE_CURSOR, SHOW_CURSOR, renderAddScreen, renderProfileList, renderRemoveScreen } from "./interactive-view.js";
 import { type KeyboardInput, type RawModeStdin, listenForKeys } from "./keyboard.js";
 import { type RunLaunchParams, runLaunch } from "./launch.js";
 import { removeProfile, type RemoveProfileParams, type RemoveProfileResult } from "./remove.js";
@@ -128,9 +128,21 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
 
     const render = () => {
       write(CLEAR_SCREEN);
+      write(HIDE_CURSOR);
       write(renderCurrentScreen());
     };
     render();
+
+    /**
+     * The single way out of this screen: stops the keyboard (restoring raw mode)
+     * and puts the cursor back before anything else — the launched `claude`, the
+     * shell prompt after Esc, or a stderr message — inherits the terminal.
+     */
+    const finish = (code: number) => {
+      keyboard.stop();
+      write(SHOW_CURSOR);
+      resolve(code);
+    };
 
     // Deliberately leaves `listNotice` alone: a notice is set by the caller that
     // is on its way back here, and clearing it would erase the message this
@@ -209,8 +221,7 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
                 return;
               }
               if (!reload(draftName)) {
-                keyboard.stop();
-                resolve(EXIT_RUNTIME);
+                finish(EXIT_RUNTIME);
                 return;
               }
               openList();
@@ -247,8 +258,7 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
               return;
             }
             if (!reload(undefined)) {
-              keyboard.stop();
-              resolve(EXIT_RUNTIME);
+              finish(EXIT_RUNTIME);
               return;
             }
             // The removal already happened, so a best-effort warning has nowhere
@@ -263,8 +273,7 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
         }
 
         if (key === "escape") {
-          keyboard.stop();
-          resolve(EXIT_OK);
+          finish(EXIT_OK);
           return;
         }
         if (key === "char" && char === "a") {
@@ -291,7 +300,11 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
             return;
           case "enter": {
             const profile = profiles[selectedIndex]!;
+            // The cursor is restored before `claude` takes over the terminal, so
+            // the child never inherits a hidden one. `finish` can't be used here:
+            // the exit code is whatever the launch resolves to, later.
             keyboard.stop();
+            write(SHOW_CURSOR);
             launch({
               home,
               cswitchHome,
@@ -324,8 +337,7 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
         }
       },
       (code) => {
-        keyboard.stop();
-        resolve(code);
+        finish(code);
       },
     );
   });
