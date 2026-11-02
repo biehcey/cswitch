@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-02
+
+- Interactive mode's profile list got a cleaner look: a `cswitch` title and section headings
+  instead of column headers, a colored dot per profile that its RECENT rows repeat, and RECENT
+  rows that lead with the folder name and end with its parent path. The login state only shows
+  when something is wrong — a red `(not logged in)` or yellow `(account unknown)` — and an
+  organization name that only restates the email is left out. The default profile is marked
+  `default` instead of `*`, and every screen's key hints read `enter run · esc quit` style.
+- README documents RECENT and `cswitch recent`.
+
 ## [0.4.0] - 2026-11-02
 
 - Interactive mode lists the directories you last ran `claude` in under a RECENT section below
