@@ -1230,3 +1230,69 @@ test("runInteractive: a Recent row whose directory is bound to another profile i
     assert.equal(launchCalls[0]!.cwd, alpha);
   });
 });
+
+test("runInteractive: usage limits fetched after the list opens are drawn into it", async () => {
+  await withFakeHome(async (home) => {
+    seedExistingProfiles(home, ["default", "work"]);
+    const written: string[] = [];
+    const stdin = fakeStdin();
+    const asked: string[] = [];
+
+    const resultPromise = runInteractive({
+      home,
+      cswitchHome: cswitchHomePath(home),
+      env: {},
+      cwd: home,
+      io: fakeIo(),
+      stdin,
+      write: (text) => written.push(text),
+      usageLimits: async (record) => {
+        asked.push(record.name);
+        return record.name === "work" ? { fiveHourPercent: 37, weeklyPercent: 7 } : undefined;
+      },
+    });
+
+    await settle();
+    stdin.write("\x1b");
+    await resultPromise;
+
+    assert.deepEqual(asked.sort(), ["default", "work"]);
+    assert.ok(written.some((chunk) => chunk.includes("5h 37% · week 7%")));
+  });
+});
+
+test("runInteractive: usage limits that arrive after a launch never draw over the launched claude", async () => {
+  await withFakeHome(async (home) => {
+    seedExistingProfiles(home, ["default", "work"]);
+    const written: string[] = [];
+    const stdin = fakeStdin();
+    let releaseUsage: (limits: { fiveHourPercent: number }) => void = () => {};
+    const usageArrives = new Promise<{ fiveHourPercent: number }>((resolve) => (releaseUsage = resolve));
+    let releaseLaunch: (code: number) => void = () => {};
+
+    const resultPromise = runInteractive({
+      home,
+      cswitchHome: cswitchHomePath(home),
+      env: {},
+      cwd: home,
+      io: fakeIo(),
+      stdin,
+      write: (text) => written.push(text),
+      launch: () => new Promise<number>((resolve) => (releaseLaunch = resolve)),
+      usageLimits: () => usageArrives,
+    });
+
+    await settle();
+    stdin.write("\r");
+    await settle();
+    const writesAtLaunch = written.length;
+
+    releaseUsage({ fiveHourPercent: 50 });
+    await settle();
+    await settle();
+    assert.equal(written.length, writesAtLaunch, "nothing may be written once claude owns the terminal");
+
+    releaseLaunch(EXIT_OK);
+    await resultPromise;
+  });
+});

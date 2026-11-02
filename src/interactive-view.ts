@@ -4,6 +4,7 @@ import { renderBanner } from "./banner.js";
 import { formatAgo, shortenHome, type RecentRow } from "./recent.js";
 import { LAUNCH_ACTIONS } from "./interactive-actions.js";
 import type { ProfileStatus } from "./status.js";
+import { formatUsageLimits, highestPercent, type UsageLimits } from "./usage-limits.js";
 
 // Raw ANSI SGR codes (spec §10.2): color is a deliberate exception to `status`'s
 // colorless output, and no third-party package is introduced for it (spec §7).
@@ -119,6 +120,21 @@ function accountCell(account: AccountDisplay): { text: string; style: string } {
   }
 }
 
+/**
+ * A Profile's Usage Limits as the list shows them (docs/adr/0003): dim while
+ * there's room, yellow from 80%, red at 95% — red and yellow already mean
+ * "look at this" on this screen. No limits (not fetched yet, failed, opted
+ * out) is an empty cell, so the row looks as it did before.
+ */
+function usageCell(limits: UsageLimits | undefined): { text: string; style: string } {
+  if (limits === undefined) {
+    return { text: "", style: "" };
+  }
+  const highest = highestPercent(limits);
+  const style = highest >= 95 ? RED : highest >= 80 ? YELLOW : DIM;
+  return { text: formatUsageLimits(limits), style };
+}
+
 function profileColor(profiles: ProfileStatus[], name: string): string {
   const index = profiles.findIndex((p) => p.name === name);
   return PROFILE_COLORS[(index < 0 ? 0 : index) % PROFILE_COLORS.length]!;
@@ -135,10 +151,19 @@ function profileColor(profiles: ProfileStatus[], name: string): string {
  * redraw after a deletion would otherwise wipe; the flag-based `remove` writes
  * the same text to stderr.
  */
-export function renderProfileList(profiles: ProfileStatus[], selectedIndex: number, notice?: string, recent?: RecentSection): string {
+export function renderProfileList(
+  profiles: ProfileStatus[],
+  selectedIndex: number,
+  notice?: string,
+  recent?: RecentSection,
+  usage?: ReadonlyMap<string, UsageLimits>,
+): string {
   const accounts = profiles.map((p) => accountCell(p.account));
   const nameWidth = Math.max(0, ...profiles.map((p) => p.name.length));
   const accountWidth = Math.max(0, ...accounts.map((a) => a.text.length));
+
+  const usageCells = profiles.map((p) => usageCell(usage?.get(p.name)));
+  const defaultWidth = profiles.some((p) => p.inPlace) ? "default".length : 0;
 
   const rows = profiles.map((profile, index) => {
     const account = accounts[index]!;
@@ -147,7 +172,9 @@ export function renderProfileList(profiles: ProfileStatus[], selectedIndex: numb
       .plain(` ${pad(profile.name, nameWidth)}   `)
       .styled(pad(account.text, accountWidth), account.style)
       .plain("   ")
-      .styled(profile.inPlace ? "default" : "", DIM)
+      .styled(pad(profile.inPlace ? "default" : "", defaultWidth), DIM)
+      .plain("   ")
+      .styled(usageCells[index]!.text, usageCells[index]!.style)
       .build();
   });
 

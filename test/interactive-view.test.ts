@@ -82,6 +82,39 @@ test("renderProfileList: opens with the cswitch banner and tagline, then a PROFI
   assert.ok(headingIndex > BANNER_ART.length);
 });
 
+test("renderProfileList: shows each profile's usage limits at the end of its row, aligned", () => {
+  const profiles = [profile({ name: "home", inPlace: true }), profile({ name: "work", inPlace: false, account: { kind: "known", emailAddress: "longer@company.com" } })];
+  const usage = new Map([
+    ["home", { fiveHourPercent: 37, weeklyPercent: 7 }],
+    ["work", { fiveHourPercent: 91, weeklyPercent: 63 }],
+  ]);
+  const lines = stripAnsi(renderProfileList(profiles, 0, undefined, undefined, usage)).split("\n");
+
+  const homeLine = lines.find((l) => l.includes("home"))!;
+  const workLine = lines.find((l) => l.includes("work"))!;
+  assert.match(homeLine, /default +5h 37% · week 7%$/);
+  assert.match(workLine, /5h 91% · week 63%$/);
+  assert.equal(homeLine.indexOf("5h"), workLine.indexOf("5h"));
+});
+
+test("renderProfileList: without usage, rows look exactly as before", () => {
+  const profiles = [profile({ name: "home", inPlace: true }), profile({ name: "work", inPlace: false })];
+  assert.equal(renderProfileList(profiles, 0, undefined, undefined, new Map()), renderProfileList(profiles, 0));
+});
+
+test("renderProfileList: a nearly full limit is yellow, a full one red", () => {
+  const profiles = [profile({ name: "a", inPlace: true }), profile({ name: "b", inPlace: false }), profile({ name: "c", inPlace: false })];
+  const usage = new Map([
+    ["a", { fiveHourPercent: 10 }],
+    ["b", { fiveHourPercent: 85 }],
+    ["c", { weeklyPercent: 100 }],
+  ]);
+  // Select nothing usage-related: index 0's whole row is bold cyan, so judge b and c.
+  const raw = renderProfileList(profiles, 0, undefined, undefined, usage).split("\n");
+  assert.match(raw.find((l) => l.includes(" b "))!, /\x1b\[33m5h 85%/);
+  assert.match(raw.find((l) => l.includes(" c "))!, /\x1b\[31mweek 100%/);
+});
+
 test("renderProfileList: the selected row is visually distinguished (colored)", () => {
   const profiles = [profile({ name: "default" }), profile({ name: "work", inPlace: false })];
   const raw = renderProfileList(profiles, 1);

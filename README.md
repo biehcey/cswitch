@@ -97,11 +97,16 @@ cswitch work -- node script.js
 Running `cswitch` with no arguments (on a real terminal) opens the profile list:
 
 ```
-  cswitch
+                        _  _          _
+    ___  ___ __      __(_)| |_   ___ | |__
+   / __|/ __|\ \ /\ / /| || __| / __|| '_ \
+  | (__ \__ \ \ V  V / | || |_ | (__ | | | |
+   \___||___/  \_/\_/  |_| \__| \___||_| |_|
+  stop logging out: each folder runs its own Claude account
 
   PROFILES
-  ● work       you@company.com · Acme Inc   default
-> ● personal   you@gmail.com
+  ● work       you@company.com · Acme Inc   default   5h 91% · week 63%
+> ● personal   you@gmail.com                          5h 12% · week 4%
 
   RECENT
   api-server   ● work       2h ago   ~/code
@@ -112,6 +117,13 @@ Running `cswitch` with no arguments (on a real terminal) opens the profile list:
 
 Each profile has its own colored dot, repeated on its RECENT rows. A profile that isn't logged in
 shows a red `(not logged in)` where its account would be.
+
+The end of each row shows how full that account's 5-hour and weekly Claude limits are — the same
+numbers `/usage` shows inside Claude Code — so you can see which account still has room before you
+pick one. They turn yellow from 80% and red from 95%. The list opens right away and the numbers
+fill in a moment later; a profile whose login has expired, or any network trouble, simply shows no
+numbers. To get them, cswitch reads each profile's own login token (read-only, never refreshed or
+stored) and asks Anthropic, exactly as Claude Code does. Set `CSWITCH_NO_USAGE=1` to turn this off.
 
 Arrow keys move, `enter` runs `claude` in the selected profile, `a` adds a profile, `d` deletes
 one, `esc` quits. Three more keys run the `claude` invocations you reach for daily, in the
@@ -190,6 +202,9 @@ rm -rf ~/.cswitch
 - IDE and editor plugins are out of scope; `CLAUDE_CONFIG_DIR` only affects the CLI.
 - Global config keys (`autoConnectIde`, `diffTool`, and similar) are not shared between
   profiles — each one is set up independently.
+- Usage limits come from an undocumented Anthropic endpoint; if it changes, the numbers quietly
+  stop showing. On macOS, profiles other than the default one depend on a guessed Keychain entry
+  name and may show no numbers.
 - "Logged in" means a profile holds an account, not that its session is still valid — whether a
   token has expired is Claude Code's business, not cswitch's.
 

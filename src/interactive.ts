@@ -1,5 +1,5 @@
 import { addProfile, type AddProfileOutcome, type AddProfileParams } from "./add.js";
-import { ConfigError, readConfig, type Config } from "./config.js";
+import { ConfigError, readConfig, type Config, type ProfileRecord } from "./config.js";
 import { EXIT_OK, EXIT_RUNTIME } from "./exit-codes.js";
 import { LAUNCH_ACTIONS } from "./interactive-actions.js";
 import type { Io } from "./io.js";
@@ -10,6 +10,7 @@ import { type RunLaunchParams, runLaunch } from "./launch.js";
 import { listRecentRows, type RecentRow } from "./recent.js";
 import { removeProfile, type RemoveProfileParams, type RemoveProfileResult } from "./remove.js";
 import { buildStatusReport, type ProfileStatus } from "./status.js";
+import { loadUsageLimits, type UsageLimits } from "./usage-limits.js";
 
 export interface RunInteractiveParams {
   home: string;
@@ -23,6 +24,8 @@ export interface RunInteractiveParams {
   launch?: (params: RunLaunchParams) => Promise<number>;
   add?: (params: AddProfileParams) => AddProfileOutcome;
   remove?: (params: RemoveProfileParams) => RemoveProfileResult;
+  /** One Profile's Usage Limits (docs/adr/0003); injectable so tests never hit the network. */
+  usageLimits?: (record: ProfileRecord) => Promise<UsageLimits | undefined>;
 }
 
 /**
@@ -39,6 +42,7 @@ export async function runInteractive(params: RunInteractiveParams): Promise<numb
   const launch = params.launch ?? runLaunch;
   const add = params.add ?? addProfile;
   const remove = params.remove ?? removeProfile;
+  const usageLimits = params.usageLimits ?? ((record: ProfileRecord) => loadUsageLimits({ home, cswitchHome, record, env }));
 
   let config: Config | undefined;
   try {
@@ -65,7 +69,7 @@ export async function runInteractive(params: RunInteractiveParams): Promise<numb
     }
   }
 
-  return runProfileListScreen({ home, cswitchHome, config, env, cwd, stdin, write, listen, launch, add, remove });
+  return runProfileListScreen({ home, cswitchHome, config, env, cwd, stdin, write, listen, launch, add, remove, usageLimits });
 }
 
 /** What the list's cursor is on: a Profile, or a Recent Directory row (issue recent-directories/01, K4). */
@@ -83,6 +87,7 @@ interface ProfileListScreenParams {
   launch: (params: RunLaunchParams) => Promise<number>;
   add: (params: AddProfileParams) => AddProfileOutcome;
   remove: (params: RemoveProfileParams) => RemoveProfileResult;
+  usageLimits: (record: ProfileRecord) => Promise<UsageLimits | undefined>;
 }
 
 /**
@@ -98,7 +103,7 @@ interface ProfileListScreenParams {
  * itself (spec §10.5).
  */
 function runProfileListScreen(params: ProfileListScreenParams): Promise<number> {
-  const { home, cswitchHome, env, cwd, stdin, write, listen, launch, add, remove } = params;
+  const { home, cswitchHome, env, cwd, stdin, write, listen, launch, add, remove, usageLimits } = params;
 
   let config = params.config;
   const report = buildStatusReport({ home, cswitchHome, config, cwd });
@@ -134,6 +139,13 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
     let removeError: string | undefined;
     let listNotice: string | undefined;
 
+    // Usage Limits by Profile name, filled in as answers arrive. `active` goes
+    // false the moment this screen hands the terminal away — to a launched
+    // `claude` or back to the shell — so a late answer can never draw over
+    // whatever owns the terminal by then.
+    const usage = new Map<string, UsageLimits>();
+    let active = true;
+
     const renderCurrentScreen = (): string => {
       switch (screen) {
         case "add":
@@ -141,7 +153,7 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
         case "remove":
           return renderRemoveScreen(removeTarget, removeError);
         case "list":
-          return renderProfileList(profiles, selectedIndex, listNotice, { rows: recentRows, home, now: Date.now() });
+          return renderProfileList(profiles, selectedIndex, listNotice, { rows: recentRows, home, now: Date.now() }, usage);
       }
     };
 
@@ -152,12 +164,33 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
     };
     render();
 
+    // Usage Limits arrive from the network after the list is already up
+    // (docs/adr/0003); see `usage` and `active` above.
+    const fetchUsage = () => {
+      for (const record of config.profiles) {
+        void usageLimits(record).then(
+          (limits) => {
+            if (!active || limits === undefined) {
+              return;
+            }
+            usage.set(record.name, limits);
+            if (screen === "list") {
+              render();
+            }
+          },
+          () => {},
+        );
+      }
+    };
+    fetchUsage();
+
     /**
      * The single way out of this screen: stops the keyboard (restoring raw mode)
      * and puts the cursor back before anything else — the launched `claude`, the
      * shell prompt after Esc, or a stderr message — inherits the terminal.
      */
     const finish = (code: number) => {
+      active = false;
       keyboard.stop();
       write(SHOW_CURSOR);
       resolve(code);
@@ -219,6 +252,7 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
       // over that directory's Binding because it is named explicitly (ADR-0002).
       const profileName = row.kind === "profile" ? row.profile.name : row.recent.profile;
       const launchCwd = row.kind === "profile" ? cwd : row.recent.dir;
+      active = false;
       keyboard.stop();
       write(SHOW_CURSOR);
       launch({

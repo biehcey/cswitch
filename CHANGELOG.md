@@ -7,6 +7,11 @@ All notable changes to this project are documented here.
 - Interactive mode opens with a colored `cswitch` banner and a one-line tagline instead of the
   plain bold title.
 - README starts with a banner image.
+- Interactive mode shows each account's 5-hour and weekly usage limits at the end of its row
+  (`5h 37% · week 7%`), yellow from 80% and red from 95% — the numbers `/usage` shows in Claude
+  Code. They are fetched from Anthropic with each profile's own login token, read-only and never
+  refreshed; anything that goes wrong just leaves the numbers out. `CSWITCH_NO_USAGE=1` turns it
+  off. See `docs/adr/0003-usage-limits.md`.
 
 ## [0.4.2] - 2026-11-02
 
