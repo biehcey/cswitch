@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,4 +84,25 @@ test("cswitch shell-init cmd is rejected: cmd.exe is out of scope", () => {
   const result = runCli(["shell-init", "cmd"]);
   assert.equal(result.status, 64);
   assert.match(result.stderr, /unsupported shell/);
+});
+
+// Regression: `npm install -g` on macOS/Linux puts a *symlink* to dist/cli.js on
+// PATH. Node then sees the symlink path in process.argv[1] but the resolved path
+// in import.meta.url, so a naive "am I the main module?" check silently skipped
+// run() — `cswitch` printed nothing and exited 0. A directory junction reproduces
+// the same mismatch on Windows without admin rights (on posix it's a symlink).
+test("cswitch -V works when invoked through a symlinked path (npm global install)", () => {
+  const linkRoot = mkdtempSync(path.join(os.tmpdir(), "cswitch-link-test-"));
+  try {
+    const linkedSrc = path.join(linkRoot, "src");
+    symlinkSync(path.dirname(cliEntry), linkedSrc, "junction");
+    const result = spawnSync(process.execPath, ["--import", "tsx", path.join(linkedSrc, "cli.ts"), "-V"], {
+      encoding: "utf8",
+      cwd: path.join(here, ".."),
+    });
+    assert.equal(result.status, 0);
+    assert.match(result.stdout.trim(), /^\d+\.\d+\.\d+/);
+  } finally {
+    rmSync(linkRoot, { recursive: true, force: true });
+  }
 });

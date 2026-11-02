@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { parseAddArgs } from "./add-args.js";
 import { runAdd } from "./add.js";
@@ -242,7 +243,24 @@ export async function run(argv: string[]): Promise<number> {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/**
+ * True when this file is the script Node was asked to run (not merely imported,
+ * e.g. by tests). `argv[1]` must be resolved through `realpathSync`: an
+ * `npm install -g` on macOS/Linux puts a symlink on PATH, so `argv[1]` is the
+ * symlink while `import.meta.url` is the real file — comparing them raw made
+ * `cswitch` silently do nothing.
+ */
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   run(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (err) => {
