@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-02
+
+- Interactive mode lists the directories you last ran `claude` in under a RECENT section below
+  the profiles, read from every profile's own Claude Code history: one row per directory and
+  profile, newest first, at most 10, with how long ago it was used. `enter`, `c`, `r` and `m` on a
+  row run `claude` in that directory with that row's profile, even when the directory is bound to
+  another profile — such rows are marked `≠binding`. Nothing is written, and `d` does nothing on
+  these rows. See `docs/adr/0002-recent-directory-launch.md`.
+- New `cswitch recent` prints the same list as a plain table.
+- `recent` is now a subcommand name, so it can no longer be used as a new profile's name.
+
 ## [0.2.0] - 2026-09-07
 
 - Interactive mode's profile list gained three one-key launches, alongside `enter`: `c` runs
