@@ -32,27 +32,48 @@ test("renderProfileList: lists every profile name and account", () => {
   assert.match(text, /\(not logged in\)/);
 });
 
-test("renderProfileList: shows Login State per profile", () => {
+test("renderProfileList: Login State only shows when something is wrong — a logged-in profile carries no state word, the others a colored warning", () => {
   const profiles = [
-    profile({ name: "default", account: { kind: "known", emailAddress: "a@b.com" } }),
+    profile({ name: "home", account: { kind: "known", emailAddress: "a@b.com" } }),
     profile({ name: "work", inPlace: false, account: { kind: "not-logged-in" } }),
     profile({ name: "ghost", inPlace: false, account: { kind: "unknown" } }),
   ];
-  const text = stripAnsi(renderProfileList(profiles, 0));
+  const raw = renderProfileList(profiles, 0);
+  const text = stripAnsi(raw);
 
-  assert.match(text, /logged-in/);
-  assert.match(text, /not-logged-in/);
-  assert.match(text, /unknown/);
+  assert.doesNotMatch(text, /logged-in/);
+  assert.match(text, /\(not logged in\)/);
+  assert.match(text, /\(account unknown\)/);
+  assert.match(raw, /\x1b\[31m\(not logged in\)/, "not logged in is red");
+  assert.match(raw, /\x1b\[33m\(account unknown\)/, "unknown is yellow");
 });
 
-test("renderProfileList: marks only the in-place (Default) profile", () => {
-  const profiles = [profile({ name: "default", inPlace: true }), profile({ name: "work", inPlace: false })];
+test("renderProfileList: an organization name that only restates the email is left out", () => {
+  const profiles = [
+    profile({ name: "home", account: { kind: "known", emailAddress: "a@b.com", organizationName: "a@b.com's Organization" } }),
+    profile({ name: "work", inPlace: false, account: { kind: "known", emailAddress: "me@corp.com", organizationName: "Corp" } }),
+  ];
+  const text = stripAnsi(renderProfileList(profiles, 0));
+
+  assert.doesNotMatch(text, /Organization/);
+  assert.match(text, /me@corp\.com · Corp/);
+});
+
+test("renderProfileList: marks only the in-place (Default) profile, with the word default", () => {
+  const profiles = [profile({ name: "home", inPlace: true }), profile({ name: "work", inPlace: false })];
   const lines = stripAnsi(renderProfileList(profiles, 0)).split("\n");
 
-  const defaultLine = lines.find((l) => l.includes("default"))!;
+  const homeLine = lines.find((l) => l.includes("home"))!;
   const workLine = lines.find((l) => l.includes("work"))!;
-  assert.match(defaultLine, /\*/);
-  assert.doesNotMatch(workLine, /\*/);
+  assert.match(homeLine, /\bdefault$/);
+  assert.doesNotMatch(workLine, /default/);
+});
+
+test("renderProfileList: opens with a cswitch title and a PROFILES heading", () => {
+  const lines = stripAnsi(renderProfileList([profile()], 0)).split("\n");
+
+  assert.equal(lines[0]!.trim(), "cswitch");
+  assert.ok(lines.some((l) => l.trim() === "PROFILES"));
 });
 
 test("renderProfileList: the selected row is visually distinguished (colored)", () => {
@@ -68,7 +89,7 @@ test("renderProfileList: the selected row is visually distinguished (colored)", 
 
 test("renderProfileList: includes a fixed key-hint footer line", () => {
   const text = stripAnsi(renderProfileList([profile()], 0));
-  assert.match(text, new RegExp(LIST_FOOTER_HINT.replace(/[[\]]/g, "\\$&")));
+  assert.ok(text.includes(LIST_FOOTER_HINT));
 });
 
 test("renderProfileList: does not throw on an empty profile list", () => {
@@ -108,11 +129,11 @@ test("renderAddScreen: includes its own key-hint footer", () => {
 });
 
 test("LIST_FOOTER_HINT advertises the add key, since 'a' opens the add screen", () => {
-  assert.match(LIST_FOOTER_HINT, /\[a\]dd/);
+  assert.match(LIST_FOOTER_HINT, /\ba add\b/);
 });
 
 test("LIST_FOOTER_HINT advertises the remove key, since 'd' opens the remove screen", () => {
-  assert.match(LIST_FOOTER_HINT, /\[d\] remove/);
+  assert.match(LIST_FOOTER_HINT, /\bd remove\b/);
 });
 
 test("renderProfileList: shows a notice line under the table when one is given", () => {
@@ -151,12 +172,12 @@ test("renderRemoveScreen: includes its own key-hint footer", () => {
 
 test("LIST_FOOTER_HINT is generated from LAUNCH_ACTIONS, not hand-written", () => {
   for (const action of LAUNCH_ACTIONS) {
-    assert.ok(LIST_FOOTER_HINT.includes(`[${action.key}]${action.label.slice(1)}`), `footer is missing a hint for [${action.key}]`);
+    assert.ok(LIST_FOOTER_HINT.includes(`${action.key} ${action.label}`), `footer is missing a hint for ${action.key}`);
   }
 });
 
-test("LIST_FOOTER_HINT advertises run, the launch actions, add, remove and quit, in that order", () => {
-  assert.equal(LIST_FOOTER_HINT, "[enter] run   [c]ontinue   [r]esume   [m]cp   [a]dd   [d] remove   [esc] quit");
+test("LIST_FOOTER_HINT advertises move, run, the launch actions, add, remove and quit, in that order", () => {
+  assert.equal(LIST_FOOTER_HINT, "↑↓ move · enter run · c continue · r resume · m mcp · a add · d remove · esc quit");
 });
 
 test("LAUNCH_ACTIONS: each key launches a claude invocation, and no key collides with the list's own keys", () => {
@@ -189,15 +210,34 @@ function lineContaining(text: string, needle: string): string {
   return line;
 }
 
-test("renderProfileList: Recent Directories appear under a RECENT heading with a ~-shortened path, the profile and how long ago", () => {
-  const text = stripAnsi(renderProfileList([profile()], 0, undefined, { rows: [recentRow()], home: HOME, now: NOW }));
+test("renderProfileList: a Recent row leads with the folder name, then the profile and how long ago, and ends with its ~-shortened parent", () => {
+  const raw = renderProfileList([profile({ name: "work", inPlace: false })], 0, undefined, { rows: [recentRow()], home: HOME, now: NOW });
+  const text = stripAnsi(raw);
 
   assert.match(text, /RECENT/);
+  assert.ok(text.indexOf("RECENT") > text.indexOf("PROFILES"));
   const row = lineContaining(text, "alpha");
-  assert.ok(row.includes(path.join("~", "repos", "alpha")), row);
-  assert.match(row, /work/);
-  assert.match(row, /2h ago/);
-  assert.ok(text.indexOf("RECENT") > text.indexOf("PROFILE"));
+  const parent = path.join("~", "repos");
+  assert.match(row.trim(), /^alpha\s/);
+  assert.ok(row.trimEnd().endsWith(parent), row);
+  assert.ok(row.indexOf("work") < row.indexOf("2h ago") && row.indexOf("2h ago") < row.indexOf(parent), row);
+  assert.match(lineContaining(raw, "alpha"), /\x1b\[1malpha/, "the folder name is bold");
+});
+
+test("renderProfileList: each profile gets its own colored dot, and a Recent row repeats its profile's color", () => {
+  const profiles = [profile({ name: "home", inPlace: true }), profile({ name: "work", inPlace: false })];
+  const rows = [recentRow({ dir: path.join(HOME, "w"), profile: "work" }), recentRow({ dir: path.join(HOME, "h"), profile: "home" })];
+  const raw = renderProfileList(profiles, 0, undefined, { rows, home: HOME, now: NOW });
+  const lines = raw.split("\n");
+  const dotColor = (needle: string) => {
+    const line = lines.find((l) => stripAnsi(l).includes(needle) && l.includes("●"))!;
+    return line.match(/(\x1b\[[0-9;]*m)●/)![1];
+  };
+
+  assert.notEqual(dotColor("home"), dotColor("work"));
+  const recentLine = (folder: string) => lines.find((l) => new RegExp(`^\\s*${folder}\\s`).test(stripAnsi(l)))!;
+  assert.equal(recentLine("w").match(/(\x1b\[[0-9;]*m)●/)![1], dotColor("work"));
+  assert.equal(recentLine("h").match(/(\x1b\[[0-9;]*m)●/)![1], dotColor("home"));
 });
 
 test("renderProfileList: relative times read as just now / minutes / hours / days", () => {
@@ -245,8 +285,8 @@ test("renderProfileList: with a Recent Directory row selected, the footer does n
   const onRecent = stripAnsi(renderProfileList([profile({ name: "work", inPlace: false })], 1, undefined, recent));
   const onProfile = stripAnsi(renderProfileList([profile({ name: "work", inPlace: false })], 0, undefined, recent));
 
-  assert.doesNotMatch(onRecent, /\[d\] remove/);
-  assert.match(onRecent, /\[enter\] run/);
-  assert.match(onRecent, /\[c\]ontinue/);
-  assert.match(onProfile, /\[d\] remove/);
+  assert.doesNotMatch(onRecent, /d remove/);
+  assert.match(onRecent, /enter run/);
+  assert.match(onRecent, /c continue/);
+  assert.match(onProfile, /d remove/);
 });

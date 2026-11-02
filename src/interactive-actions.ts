@@ -13,8 +13,8 @@ export interface LaunchAction {
   /** The single character that triggers it. Must not collide with the list's own
    * keys (`a`, `d`) or the confirmation screen's (`y`, `n`). */
   key: string;
-  /** The word shown in the footer; starts with `key` so the hint can bracket its
-   * first character (`continue` → `[c]ontinue`). */
+  /** The word shown in the footer after its key (`c continue`); it starts with
+   * `key` so the key reads as its mnemonic. */
   label: string;
   /** The command handed to the Launcher (§5), exactly as `--` would pass it. */
   command: string[];

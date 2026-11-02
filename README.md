@@ -93,12 +93,21 @@ cswitch work -- node script.js
 Running `cswitch` with no arguments (on a real terminal) opens the profile list:
 
 ```
-  PROFILE        ACCOUNT                              LOGIN STATE   DEFAULT
-  work           you@company.com · Acme Inc           logged-in     *
-> personal       you@gmail.com                        logged-in
+  cswitch
 
-[enter] run   [c]ontinue   [r]esume   [m]cp   [a]dd   [d] remove   [esc] quit
+  PROFILES
+  ● work       you@company.com · Acme Inc   default
+> ● personal   you@gmail.com
+
+  RECENT
+  api-server   ● work       2h ago   ~/code
+  dotfiles     ● personal   3d ago   ~
+
+  ↑↓ move · enter run · c continue · r resume · m mcp · a add · d remove · esc quit
 ```
+
+Each profile has its own colored dot, repeated on its RECENT rows. A profile that isn't logged in
+shows a red `(not logged in)` where its account would be.
 
 Arrow keys move, `enter` runs `claude` in the selected profile, `a` adds a profile, `d` deletes
 one, `esc` quits. Three more keys run the `claude` invocations you reach for daily, in the
@@ -114,6 +123,11 @@ Selecting a profile here is a one-off launch: nothing is written and no binding 
 the command you started finishes, `cswitch` finishes with it — the list does not reopen. The
 default profile can't be deleted from here — backing that out means removing `~/.cswitch`
 entirely — but every launch key works on it like any other row.
+
+RECENT lists the last 10 directories you ran `claude` in, read from each profile's own Claude Code
+history, one row per directory and profile. `enter`, `c`, `r` and `m` on a RECENT row run in that
+directory with that row's profile — even if the directory is bound to another profile, in which
+case the row is marked `≠binding`. `d` does nothing there. Your shell stays where it was.
 
 In a pipe, a script, or CI there is no terminal to drive, so a bare `cswitch` prints help and
 exits instead.
@@ -131,6 +145,7 @@ exits instead.
 | `cswitch bind --list` | List every binding |
 | `cswitch unbind <dir>` | Remove a binding |
 | `cswitch status [--json]` | Show what runs here, plus every profile and any warnings |
+| `cswitch recent` | List the directories you last ran `claude` in, per profile |
 | `cswitch shell-init <shell>` | Print the `claude` wrapper for bash, zsh, fish, or powershell |
 
 `cswitch status` is the one to reach for when something looks wrong:

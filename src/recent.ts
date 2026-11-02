@@ -152,25 +152,6 @@ export function listRecentRows(params: ListRecentDirectoriesParams): RecentRow[]
 }
 
 /**
- * Lays Recent rows out in aligned columns — directory, Profile, how long ago,
- * `≠binding` — the one layout both the RECENT section and `cswitch recent`
- * use. `paths` is how each row's directory is displayed (the list shortens it
- * to `~`, the command does not). Lines come back unindented and uncolored;
- * cursor and color are the caller's.
- */
-export function layoutRecentTable(rows: RecentRow[], paths: string[], now: number): { header: string; lines: string[] } {
-  const pad = (text: string, width: number) => text + " ".repeat(Math.max(0, width - text.length));
-  const dirWidth = Math.max(9, ...paths.map((p) => p.length));
-  const profileWidth = Math.max(7, ...rows.map((row) => row.profile.length));
-  const header = `${pad("DIRECTORY", dirWidth)}  ${pad("PROFILE", profileWidth)}  LAST USED`;
-  const lines = rows.map((row, index) => {
-    const mark = row.bindingConflict ? "≠binding" : "";
-    return `${pad(paths[index]!, dirWidth)}  ${pad(row.profile, profileWidth)}  ${pad(formatAgo(now - row.lastUsed), 9)}  ${mark}`.trimEnd();
-  });
-  return { header, lines };
-}
-
-/**
  * Formats the list as `cswitch recent` prints it (issue K8): plain columns, no
  * color, full paths so a row can be copied straight into `cd`. No rows, no
  * output — not even a header — so an empty result is an empty stdout.
@@ -179,11 +160,14 @@ export function formatRecentTable(rows: RecentRow[], now: number): string {
   if (rows.length === 0) {
     return "";
   }
-  const { header, lines } = layoutRecentTable(
-    rows,
-    rows.map((row) => row.dir),
-    now,
-  );
+  const pad = (text: string, width: number) => text + " ".repeat(Math.max(0, width - text.length));
+  const dirWidth = Math.max(9, ...rows.map((row) => row.dir.length));
+  const profileWidth = Math.max(7, ...rows.map((row) => row.profile.length));
+  const header = `${pad("DIRECTORY", dirWidth)}  ${pad("PROFILE", profileWidth)}  LAST USED`;
+  const lines = rows.map((row) => {
+    const mark = row.bindingConflict ? "≠binding" : "";
+    return `${pad(row.dir, dirWidth)}  ${pad(row.profile, profileWidth)}  ${pad(formatAgo(now - row.lastUsed), 9)}  ${mark}`.trimEnd();
+  });
   return [header, ...lines].join("\n") + "\n";
 }
 

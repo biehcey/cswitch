@@ -1,8 +1,8 @@
-import { formatAccount } from "./account.js";
-import { layoutRecentTable, shortenHome, type RecentRow } from "./recent.js";
-import { LAUNCH_ACTIONS, type LaunchAction } from "./interactive-actions.js";
+import path from "node:path";
+import type { AccountDisplay } from "./account.js";
+import { formatAgo, shortenHome, type RecentRow } from "./recent.js";
+import { LAUNCH_ACTIONS } from "./interactive-actions.js";
 import type { ProfileStatus } from "./status.js";
-import { loginStateOf } from "./status.js";
 
 // Raw ANSI SGR codes (spec §10.2): color is a deliberate exception to `status`'s
 // colorless output, and no third-party package is introduced for it (spec §7).
@@ -10,9 +10,14 @@ const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
 const CYAN = "\x1b[36m";
 const DIM = "\x1b[2m";
-const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
 const YELLOW = "\x1b[33m";
+
+// One color per Profile, by its place in the list, so the dot on a Profile row
+// and on every Recent row of that Profile match at a glance. Red and yellow are
+// left out — they mean "something is wrong" on this screen.
+const PROFILE_COLORS = ["\x1b[35m", "\x1b[34m", "\x1b[32m", "\x1b[36m", "\x1b[95m", "\x1b[94m", "\x1b[92m", "\x1b[96m"];
+const DOT = "●";
 
 export const CLEAR_SCREEN = "\x1b[2J\x1b[H";
 
@@ -24,23 +29,19 @@ export const CLEAR_SCREEN = "\x1b[2J\x1b[H";
 export const HIDE_CURSOR = "\x1b[?25l";
 export const SHOW_CURSOR = "\x1b[?25h";
 
-/** Renders one launch action as its footer hint, bracketing the key inside its
- * own label: `continue` → `[c]ontinue`. */
-function actionHint(action: LaunchAction): string {
-  return `[${action.key}]${action.label.slice(1)}`;
-}
-
 // Built from LAUNCH_ACTIONS rather than written out, so the footer and the keys
 // `interactive.ts` actually dispatches can never drift apart (spec §10.3).
-export const LIST_FOOTER_HINT = ["[enter] run", ...LAUNCH_ACTIONS.map(actionHint), "[a]dd", "[d] remove", "[esc] quit"].join("   ");
+const LAUNCH_HINTS = LAUNCH_ACTIONS.map((action) => `${action.key} ${action.label}`);
+
+export const LIST_FOOTER_HINT = ["↑↓ move", "enter run", ...LAUNCH_HINTS, "a add", "d remove", "esc quit"].join(" · ");
 
 // The same keys minus `d`, which does nothing on a Recent Directory row (issue
 // recent-directories/01, K5) and so must not be advertised there.
-export const RECENT_FOOTER_HINT = ["[enter] run", ...LAUNCH_ACTIONS.map(actionHint), "[a]dd", "[esc] quit"].join("   ");
+export const RECENT_FOOTER_HINT = ["↑↓ move", "enter run", ...LAUNCH_HINTS, "a add", "esc quit"].join(" · ");
 
-export const ADD_FOOTER_HINT = "[enter] create   [esc] cancel";
+export const ADD_FOOTER_HINT = "enter create · esc cancel";
 
-export const REMOVE_FOOTER_HINT = "[y] remove   [n/esc] cancel";
+export const REMOVE_FOOTER_HINT = "y remove · n/esc cancel";
 
 function pad(text: string, width: number): string {
   return text.length >= width ? text : text + " ".repeat(width - text.length);
@@ -52,47 +53,115 @@ function messageBlock(text: string, color: string): string[] {
   return text.split("\n").map((line) => `  ${color}${line}${RESET}`);
 }
 
-function loginStateColor(state: ReturnType<typeof loginStateOf>): string {
-  return state === "logged-in" ? GREEN : "";
+/**
+ * Builds one list row. A selected row is drawn whole in bold cyan, so its parts
+ * keep only the dot's color — an inner RESET would cut the outer highlight
+ * short; an unselected row gives each part its own style instead.
+ */
+class RowBuilder {
+  private text = "";
+
+  constructor(private readonly selected: boolean) {
+    this.text = selected ? "> " : "  ";
+  }
+
+  plain(part: string): this {
+    this.text += part;
+    return this;
+  }
+
+  styled(part: string, style: string): this {
+    if (part.trim() === "") {
+      this.text += part;
+      return this;
+    }
+    this.text += this.selected || style === "" ? part : `${style}${part}${RESET}`;
+    return this;
+  }
+
+  dot(color: string): this {
+    this.text += this.selected ? `${color}${DOT}${CYAN}` : `${color}${DOT}${RESET}`;
+    return this;
+  }
+
+  build(): string {
+    // Trailing padding is invisible but would break "ends with" reads of a row;
+    // it can sit just before a closing RESET, so look past color codes too.
+    let line = this.text;
+    for (let previous = ""; previous !== line; ) {
+      previous = line;
+      // eslint-disable-next-line no-control-regex
+      line = line.replace(/ +((?:\x1b\[[0-9;]*m)*)$/, "$1");
+    }
+    return this.selected ? `${BOLD}${CYAN}${line}${RESET}` : line;
+  }
 }
 
 /**
- * Renders the Profile list (spec §10.5) as a Dense table — name, Account, Login
- * State, Default marker — with a fixed key-hint footer (spec §10.2). Pure and
- * TTY-independent so it can be unit tested without a real terminal; the caller
- * is responsible for clearing the screen (`CLEAR_SCREEN`) before writing this.
- * `notice` carries a message that outlived the screen that produced it — a
- * best-effort Keychain or directory-delete warning from `removeProfile()`
- * (§6.4/§10.9), which the redraw after a deletion would otherwise wipe; the
- * flag-based `remove` writes the same text to stderr.
+ * The Account as the list shows it: like `formatAccount`, but an organization
+ * name that only restates the email (`a@b.com's Organization`, what a personal
+ * account gets) is dropped as noise. Not logged in / unknown come back with the
+ * color that flags them — the only Login State this screen shows (a logged-in
+ * Profile is the normal case and says nothing).
+ */
+function accountCell(account: AccountDisplay): { text: string; style: string } {
+  switch (account.kind) {
+    case "not-logged-in":
+      return { text: "(not logged in)", style: RED };
+    case "unknown":
+      return { text: "(account unknown)", style: YELLOW };
+    case "known": {
+      const org = account.organizationName;
+      const redundant = org === undefined || org === "" || org === `${account.emailAddress}'s Organization`;
+      return { text: redundant ? account.emailAddress : `${account.emailAddress} · ${org}`, style: "" };
+    }
+  }
+}
+
+function profileColor(profiles: ProfileStatus[], name: string): string {
+  const index = profiles.findIndex((p) => p.name === name);
+  return PROFILE_COLORS[(index < 0 ? 0 : index) % PROFILE_COLORS.length]!;
+}
+
+/**
+ * Renders the Profile list (spec §10.5): a title, the Profiles — colored dot,
+ * name, Account, `default` on the Default Profile — the RECENT section, and a
+ * fixed key-hint footer (spec §10.2). Pure and TTY-independent so it can be
+ * unit tested without a real terminal; the caller is responsible for clearing
+ * the screen (`CLEAR_SCREEN`) before writing this. `notice` carries a message
+ * that outlived the screen that produced it — a best-effort Keychain or
+ * directory-delete warning from `removeProfile()` (§6.4/§10.9), which the
+ * redraw after a deletion would otherwise wipe; the flag-based `remove` writes
+ * the same text to stderr.
  */
 export function renderProfileList(profiles: ProfileStatus[], selectedIndex: number, notice?: string, recent?: RecentSection): string {
-  const nameWidth = Math.max(7, ...profiles.map((p) => p.name.length));
-  const accountWidth = Math.max(7, ...profiles.map((p) => formatAccount(p.account).length));
-
-  const header = `  ${pad("PROFILE", nameWidth)}  ${pad("ACCOUNT", accountWidth)}  ${pad("LOGIN STATE", 14)}  DEFAULT`;
+  const accounts = profiles.map((p) => accountCell(p.account));
+  const nameWidth = Math.max(0, ...profiles.map((p) => p.name.length));
+  const accountWidth = Math.max(0, ...accounts.map((a) => a.text.length));
 
   const rows = profiles.map((profile, index) => {
-    const isSelected = index === selectedIndex;
-    const cursor = isSelected ? "> " : "  ";
-    const loginState = loginStateOf(profile.account);
-    const marker = profile.inPlace ? "*" : "";
-    // An embedded RESET here would cut short the outer BOLD+CYAN wrap below on a
-    // selected row, so the per-state color is only applied on unselected rows.
-    const loginStateField = isSelected ? pad(loginState, 14) : `${loginStateColor(loginState)}${pad(loginState, 14)}${RESET}`;
-    const line = `${cursor}${pad(profile.name, nameWidth)}  ${pad(formatAccount(profile.account), accountWidth)}  ${loginStateField}  ${marker}`;
-    return isSelected ? `${BOLD}${CYAN}${line}${RESET}` : line;
+    const account = accounts[index]!;
+    return new RowBuilder(index === selectedIndex)
+      .dot(profileColor(profiles, profile.name))
+      .plain(` ${pad(profile.name, nameWidth)}   `)
+      .styled(pad(account.text, accountWidth), account.style)
+      .plain("   ")
+      .styled(profile.inPlace ? "default" : "", DIM)
+      .build();
   });
 
   const recentSelected = recent !== undefined && recent.rows[selectedIndex - profiles.length] !== undefined;
   const footerHint = recentSelected ? RECENT_FOOTER_HINT : LIST_FOOTER_HINT;
-  const footer = `${DIM}${footerHint}${RESET}`;
+  const footer = `  ${DIM}${footerHint}${RESET}`;
 
   const noticeLines = notice === undefined ? [] : ["", ...messageBlock(notice, YELLOW)];
 
-  const recentLines = recent === undefined ? [] : renderRecentSection(recent, selectedIndex - profiles.length);
+  const recentLines = recent === undefined ? [] : renderRecentSection(recent, profiles, selectedIndex - profiles.length);
 
-  return [header, ...rows, ...recentLines, ...noticeLines, "", footer].join("\n") + "\n";
+  const title = `  ${BOLD}cswitch${RESET}`;
+  const heading = `  ${DIM}PROFILES${RESET}`;
+
+  return [title, "", heading, ...rows, ...recentLines, ...noticeLines, "", footer].join("\n") + "\n";
 }
 
 /** Everything the RECENT section needs besides the rows: `home` to shorten paths to `~`, `now` to say "2h ago". */
@@ -103,27 +172,55 @@ export interface RecentSection {
 }
 
 /**
- * The RECENT section under the Profile table (issue recent-directories/01,
- * K4): path, Profile, how long ago, and a `≠binding` mark. The cursor moves
- * through the Profiles and these rows as one list, so `selectedIndex` here is
- * already offset past the Profiles — negative means a Profile is selected.
- * No rows, no section: not even the heading.
+ * Splits a Recent Directory into what the eye looks for — the folder's own name
+ * — and where it lives, `~`-shortened. The home directory itself is `~` with no
+ * parent; a drive or filesystem root is its own name.
  */
-function renderRecentSection(recent: RecentSection, selectedIndex: number): string[] {
+function folderAndParent(dir: string, home: string): { folder: string; parent: string } {
+  const shortened = shortenHome(dir, home);
+  if (shortened === "~") {
+    return { folder: "~", parent: "" };
+  }
+  const parentDir = path.dirname(dir);
+  if (parentDir === dir) {
+    return { folder: dir, parent: "" };
+  }
+  return { folder: path.basename(dir), parent: shortenHome(parentDir, home) };
+}
+
+/**
+ * The RECENT section under the Profiles (issue recent-directories/01, K4):
+ * folder name, the Profile's dot and name, how long ago, a `≠binding` mark when
+ * any row needs one, and the parent path last and dim. The cursor moves through
+ * the Profiles and these rows as one list, so `selectedIndex` here is already
+ * offset past the Profiles — negative means a Profile is selected. No rows, no
+ * section: not even the heading.
+ */
+function renderRecentSection(recent: RecentSection, profiles: ProfileStatus[], selectedIndex: number): string[] {
   if (recent.rows.length === 0) {
     return [];
   }
 
-  const paths = recent.rows.map((row) => shortenHome(row.dir, recent.home));
-  const { lines } = layoutRecentTable(recent.rows, paths, recent.now);
+  const parts = recent.rows.map((row) => folderAndParent(row.dir, recent.home));
+  const ages = recent.rows.map((row) => formatAgo(recent.now - row.lastUsed));
+  const folderWidth = Math.max(0, ...parts.map((p) => p.folder.length));
+  const profileWidth = Math.max(0, ...recent.rows.map((row) => row.profile.length));
+  const ageWidth = Math.max(0, ...ages.map((a) => a.length));
+  const anyConflict = recent.rows.some((row) => row.bindingConflict);
 
-  const rendered = lines.map((text, index) => {
-    const isSelected = index === selectedIndex;
-    const line = `${isSelected ? "> " : "  "}${text}`;
-    return isSelected ? `${BOLD}${CYAN}${line}${RESET}` : line;
+  const lines = recent.rows.map((row, index) => {
+    const builder = new RowBuilder(index === selectedIndex)
+      .styled(pad(parts[index]!.folder, folderWidth), BOLD)
+      .plain("   ")
+      .dot(profileColor(profiles, row.profile))
+      .plain(` ${pad(row.profile, profileWidth)}   ${pad(ages[index]!, ageWidth)}   `);
+    if (anyConflict) {
+      builder.styled(pad(row.bindingConflict ? "≠binding" : "", 8), YELLOW).plain("   ");
+    }
+    return builder.styled(parts[index]!.parent, DIM).build();
   });
 
-  return ["", `  ${DIM}RECENT${RESET}`, ...rendered];
+  return ["", `  ${DIM}RECENT${RESET}`, ...lines];
 }
 
 /**
