@@ -5,9 +5,9 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { cswitchHomePath } from "../src/config.js";
-import { EXIT_OK } from "../src/exit-codes.js";
+import { EXIT_OK, EXIT_RUNTIME } from "../src/exit-codes.js";
 import type { Io } from "../src/io.js";
-import { HIDE_CURSOR, SHOW_CURSOR } from "../src/interactive-view.js";
+import { ENTER_ALT_SCREEN, HIDE_CURSOR, LEAVE_ALT_SCREEN, SHOW_CURSOR } from "../src/interactive-view.js";
 import { LAUNCH_ACTIONS } from "../src/interactive-actions.js";
 import { runInteractive } from "../src/interactive.js";
 import type { RunLaunchParams } from "../src/launch.js";
@@ -806,6 +806,50 @@ test("runInteractive: a best-effort warning from removeProfile survives the redr
   });
 });
 
+test("runInteractive: a config that can't be re-read ends the screen and prints its error after the alternate screen is gone", async () => {
+  await withFakeHome(async (home) => {
+    seedExistingProfiles(home, ["default", "work"]);
+    const written: string[] = [];
+    const stdin = fakeStdin();
+    const originalStderrWrite = process.stderr.write;
+    process.stderr.write = ((text: string) => {
+      written.push(`stderr:${text}`);
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      const resultPromise = runInteractive({
+        home,
+        cswitchHome: cswitchHomePath(home),
+        env: {},
+        cwd: home,
+        io: fakeIo(),
+        stdin,
+        write: (text) => written.push(text),
+        remove: () => {
+          writeFileSync(path.join(cswitchHomePath(home), "config.json"), "{ not json");
+          return { kind: "ok" };
+        },
+      });
+
+      await settle();
+      stdin.write("\x1b[B");
+      await settle();
+      stdin.write("d");
+      await settle();
+      stdin.write("y");
+
+      assert.equal(await resultPromise, EXIT_RUNTIME);
+      const leaveAt = written.lastIndexOf(LEAVE_ALT_SCREEN);
+      const errorAt = written.findIndex((text) => text.startsWith("stderr:"));
+      assert.ok(leaveAt >= 0, "the alternate screen is left");
+      assert.ok(errorAt > leaveAt, "and the error comes after, where the shell can still see it");
+    } finally {
+      process.stderr.write = originalStderrWrite;
+    }
+  });
+});
+
 test("runInteractive: a shifted 'Y' confirms too, matching the flag-based remove's case-insensitive answer", async () => {
   await withFakeHome(async (home) => {
     seedExistingProfiles(home, ["default", "work"]);
@@ -970,6 +1014,64 @@ test("runInteractive: restores the cursor on Ctrl-C, from any screen", async () 
     stdin.write("\x03");
     assert.equal(await resultPromise, EXIT_OK);
     assert.ok(written.join("").endsWith(SHOW_CURSOR));
+  });
+});
+
+test("runInteractive: draws on the alternate screen and leaves it on quit, so the shell gets its screen back", async () => {
+  for (const quitKey of ["\x1b", "\x03"]) {
+    await withFakeHome(async (home) => {
+      seedExistingProfiles(home, ["default"]);
+      const written: string[] = [];
+      const stdin = fakeStdin();
+
+      const resultPromise = runInteractive({
+        home,
+        cswitchHome: cswitchHomePath(home),
+        env: {},
+        cwd: home,
+        io: fakeIo(),
+        stdin,
+        write: (text) => written.push(text),
+      });
+
+      await settle();
+      assert.equal(written[0], ENTER_ALT_SCREEN, "the alternate screen comes before anything is drawn");
+      assert.ok(!written.includes(LEAVE_ALT_SCREEN), "and stays up while the list is showing");
+
+      stdin.write(quitKey);
+      assert.equal(await resultPromise, EXIT_OK);
+      const leaveAt = written.lastIndexOf(LEAVE_ALT_SCREEN);
+      assert.ok(leaveAt >= 0, "quitting leaves the alternate screen");
+      assert.ok(written.slice(leaveAt + 1).every((text) => text === SHOW_CURSOR), "nothing is drawn after it");
+    });
+  }
+});
+
+test("runInteractive: leaves the alternate screen before the launched claude takes the terminal", async () => {
+  await withFakeHome(async (home) => {
+    seedExistingProfiles(home, ["default"]);
+    const written: string[] = [];
+    let leftBeforeLaunch = false;
+    const stdin = fakeStdin();
+
+    const resultPromise = runInteractive({
+      home,
+      cswitchHome: cswitchHomePath(home),
+      env: {},
+      cwd: home,
+      io: fakeIo(),
+      stdin,
+      write: (text) => written.push(text),
+      launch: async () => {
+        leftBeforeLaunch = written.includes(LEAVE_ALT_SCREEN);
+        return EXIT_OK;
+      },
+    });
+
+    await settle();
+    stdin.write("\r");
+    assert.equal(await resultPromise, EXIT_OK);
+    assert.ok(leftBeforeLaunch);
   });
 });
 

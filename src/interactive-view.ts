@@ -31,6 +31,13 @@ export const CLEAR_SCREEN = "\x1b[2J\x1b[H";
 export const HIDE_CURSOR = "\x1b[?25l";
 export const SHOW_CURSOR = "\x1b[?25h";
 
+// Interactive Mode draws on the terminal's alternate screen, the way full-screen
+// tools like `less` do, so leaving it — Esc, Ctrl-C, or handing over to a
+// launched `claude` — puts back exactly what the shell showed before, instead
+// of leaving the last frame of the list behind the prompt.
+export const ENTER_ALT_SCREEN = "\x1b[?1049h";
+export const LEAVE_ALT_SCREEN = "\x1b[?1049l";
+
 // Built from LAUNCH_ACTIONS rather than written out, so the footer and the keys
 // `interactive.ts` actually dispatches can never drift apart (spec §10.3).
 const LAUNCH_HINTS = LAUNCH_ACTIONS.map((action) => `${action.key} ${action.label}`);
