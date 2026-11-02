@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-02
+
+- Fixed `cswitch` printing nothing and exiting on macOS and Linux after `npm install -g`. The
+  command on PATH is a symlink there, and cswitch didn't recognize itself as the program being
+  run when started through one. Windows was not affected.
+
 ## [0.4.1] - 2026-11-02
 
 - Interactive mode's profile list got a cleaner look: a `cswitch` title and section headings
