@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-02
+
 - Interactive mode draws on the terminal's alternate screen, so quitting it (Esc or Ctrl-C) or
   launching `claude` from it gives back the terminal exactly as it was, instead of leaving the
   last frame of the list above the prompt.
