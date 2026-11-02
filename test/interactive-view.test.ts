@@ -238,3 +238,15 @@ test("renderProfileList: with no Recent Directories there is no RECENT heading a
 
   assert.doesNotMatch(text, /RECENT/);
 });
+
+test("renderProfileList: with a Recent Directory row selected, the footer does not advertise [d] remove — 'd' does nothing there", () => {
+  const recent = { rows: [recentRow()], home: HOME, now: NOW };
+
+  const onRecent = stripAnsi(renderProfileList([profile({ name: "work", inPlace: false })], 1, undefined, recent));
+  const onProfile = stripAnsi(renderProfileList([profile({ name: "work", inPlace: false })], 0, undefined, recent));
+
+  assert.doesNotMatch(onRecent, /\[d\] remove/);
+  assert.match(onRecent, /\[enter\] run/);
+  assert.match(onRecent, /\[c\]ontinue/);
+  assert.match(onProfile, /\[d\] remove/);
+});

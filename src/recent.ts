@@ -87,10 +87,7 @@ export function listRecentDirectories(params: ListRecentDirectoriesParams): Rece
 
   for (const record of config.profiles) {
     for (const entry of readHistory(historyPath(home, cswitchHome, record))) {
-      // Windows paths are case-insensitive, and Claude Code records whatever
-      // spelling the shell had (`C:\` vs `c:\`) — those are one directory.
-      const dirKey = platform === "win32" ? entry.project.toLowerCase() : entry.project;
-      const key = `${record.name}\0${dirKey}`;
+      const key = `${record.name}\0${pathKey(entry.project, platform)}`;
       const existing = rows.get(key);
       if (existing === undefined || entry.timestamp > existing.lastUsed) {
         rows.set(key, { dir: entry.project, profile: record.name, lastUsed: entry.timestamp });
@@ -102,6 +99,27 @@ export function listRecentDirectories(params: ListRecentDirectoriesParams): Rece
     .sort((a, b) => b.lastUsed - a.lastUsed)
     .filter((row) => isDirectory(row.dir))
     .slice(0, RECENT_LIMIT);
+}
+
+/**
+ * A path in the form two spellings of the same directory share. Windows paths
+ * are case-insensitive, and Claude Code records whatever spelling the shell
+ * had (`C:\` vs `c:\`) — those are one directory.
+ */
+function pathKey(dir: string, platform: NodeJS.Platform): string {
+  return platform === "win32" ? dir.toLowerCase() : dir;
+}
+
+/** `~` for the home directory, so a row fits the terminal (issue K4). */
+export function shortenHome(dir: string, home: string, platform: NodeJS.Platform = process.platform): string {
+  if (pathKey(dir, platform) === pathKey(home, platform)) {
+    return "~";
+  }
+  const homePrefix = home.endsWith(path.sep) ? home : home + path.sep;
+  if (pathKey(dir, platform).startsWith(pathKey(homePrefix, platform))) {
+    return path.join("~", dir.slice(homePrefix.length));
+  }
+  return dir;
 }
 
 function isDirectory(dir: string): boolean {
@@ -134,6 +152,25 @@ export function listRecentRows(params: ListRecentDirectoriesParams): RecentRow[]
 }
 
 /**
+ * Lays Recent rows out in aligned columns — directory, Profile, how long ago,
+ * `≠binding` — the one layout both the RECENT section and `cswitch recent`
+ * use. `paths` is how each row's directory is displayed (the list shortens it
+ * to `~`, the command does not). Lines come back unindented and uncolored;
+ * cursor and color are the caller's.
+ */
+export function layoutRecentTable(rows: RecentRow[], paths: string[], now: number): { header: string; lines: string[] } {
+  const pad = (text: string, width: number) => text + " ".repeat(Math.max(0, width - text.length));
+  const dirWidth = Math.max(9, ...paths.map((p) => p.length));
+  const profileWidth = Math.max(7, ...rows.map((row) => row.profile.length));
+  const header = `${pad("DIRECTORY", dirWidth)}  ${pad("PROFILE", profileWidth)}  LAST USED`;
+  const lines = rows.map((row, index) => {
+    const mark = row.bindingConflict ? "≠binding" : "";
+    return `${pad(paths[index]!, dirWidth)}  ${pad(row.profile, profileWidth)}  ${pad(formatAgo(now - row.lastUsed), 9)}  ${mark}`.trimEnd();
+  });
+  return { header, lines };
+}
+
+/**
  * Formats the list as `cswitch recent` prints it (issue K8): plain columns, no
  * color, full paths so a row can be copied straight into `cd`. No rows, no
  * output — not even a header — so an empty result is an empty stdout.
@@ -142,12 +179,10 @@ export function formatRecentTable(rows: RecentRow[], now: number): string {
   if (rows.length === 0) {
     return "";
   }
-  const pad = (text: string, width: number) => text + " ".repeat(Math.max(0, width - text.length));
-  const dirWidth = Math.max(9, ...rows.map((row) => row.dir.length));
-  const profileWidth = Math.max(7, ...rows.map((row) => row.profile.length));
-  const header = `${pad("DIRECTORY", dirWidth)}  ${pad("PROFILE", profileWidth)}  LAST USED`;
-  const lines = rows.map((row) =>
-    `${pad(row.dir, dirWidth)}  ${pad(row.profile, profileWidth)}  ${pad(formatAgo(now - row.lastUsed), 9)}  ${row.bindingConflict ? "≠binding" : ""}`.trimEnd(),
+  const { header, lines } = layoutRecentTable(
+    rows,
+    rows.map((row) => row.dir),
+    now,
   );
   return [header, ...lines].join("\n") + "\n";
 }

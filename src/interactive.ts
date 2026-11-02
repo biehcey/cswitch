@@ -7,9 +7,9 @@ import { runInit } from "./init.js";
 import { CLEAR_SCREEN, HIDE_CURSOR, SHOW_CURSOR, renderAddScreen, renderProfileList, renderRemoveScreen } from "./interactive-view.js";
 import { type KeyboardInput, type RawModeStdin, listenForKeys } from "./keyboard.js";
 import { type RunLaunchParams, runLaunch } from "./launch.js";
-import { listRecentRows } from "./recent.js";
+import { listRecentRows, type RecentRow } from "./recent.js";
 import { removeProfile, type RemoveProfileParams, type RemoveProfileResult } from "./remove.js";
-import { buildStatusReport } from "./status.js";
+import { buildStatusReport, type ProfileStatus } from "./status.js";
 
 export interface RunInteractiveParams {
   home: string;
@@ -68,6 +68,9 @@ export async function runInteractive(params: RunInteractiveParams): Promise<numb
   return runProfileListScreen({ home, cswitchHome, config, env, cwd, stdin, write, listen, launch, add, remove });
 }
 
+/** What the list's cursor is on: a Profile, or a Recent Directory row (issue recent-directories/01, K4). */
+type SelectedRow = { kind: "profile"; profile: ProfileStatus } | { kind: "recent"; recent: RecentRow };
+
 interface ProfileListScreenParams {
   home: string;
   cswitchHome: string;
@@ -104,6 +107,16 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
   // The cursor runs through the Profiles and then the Recent Directories as one
   // list (issue K4): indexes past the Profiles land on a Recent row.
   const rowCount = () => profiles.length + recentRows.length;
+  // The one place that index is turned back into what it points at, so no key
+  // handler does the offset arithmetic itself.
+  const rowAt = (index: number): SelectedRow | undefined => {
+    const profile = profiles[index];
+    if (profile !== undefined) {
+      return { kind: "profile", profile };
+    }
+    const recent = recentRows[index - profiles.length];
+    return recent === undefined ? undefined : { kind: "recent", recent };
+  };
 
   return new Promise((resolve) => {
     const here = report.here;
@@ -198,11 +211,14 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
      * exit code is whatever the launch resolves to, later.
      */
     const runInProfile = (command: string[]) => {
+      const row = rowAt(selectedIndex);
+      if (row === undefined) {
+        return;
+      }
       // A Recent row carries its own directory and Profile; the Profile wins
       // over that directory's Binding because it is named explicitly (ADR-0002).
-      const recent = recentRows[selectedIndex - profiles.length];
-      const profileName = recent === undefined ? profiles[selectedIndex]!.name : recent.profile;
-      const launchCwd = recent === undefined ? cwd : recent.dir;
+      const profileName = row.kind === "profile" ? row.profile.name : row.recent.profile;
+      const launchCwd = row.kind === "profile" ? cwd : row.recent.dir;
       keyboard.stop();
       write(SHOW_CURSOR);
       launch({
@@ -346,10 +362,10 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
             //
             // A Recent row is no Profile at all: `d` there would delete a Profile
             // the user is not looking at, so it does nothing (issue K5).
-            const selectedProfile = profiles[selectedIndex];
-            if (char === "d" && selectedProfile !== undefined && !selectedProfile.inPlace) {
+            const row = rowAt(selectedIndex);
+            if (char === "d" && row?.kind === "profile" && !row.profile.inPlace) {
               screen = "remove";
-              removeTarget = selectedProfile.name;
+              removeTarget = row.profile.name;
               removeError = undefined;
               listNotice = undefined;
               render();

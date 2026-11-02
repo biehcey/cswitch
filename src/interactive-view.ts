@@ -1,6 +1,5 @@
-import path from "node:path";
 import { formatAccount } from "./account.js";
-import { formatAgo, type RecentRow } from "./recent.js";
+import { layoutRecentTable, shortenHome, type RecentRow } from "./recent.js";
 import { LAUNCH_ACTIONS, type LaunchAction } from "./interactive-actions.js";
 import type { ProfileStatus } from "./status.js";
 import { loginStateOf } from "./status.js";
@@ -34,6 +33,10 @@ function actionHint(action: LaunchAction): string {
 // Built from LAUNCH_ACTIONS rather than written out, so the footer and the keys
 // `interactive.ts` actually dispatches can never drift apart (spec §10.3).
 export const LIST_FOOTER_HINT = ["[enter] run", ...LAUNCH_ACTIONS.map(actionHint), "[a]dd", "[d] remove", "[esc] quit"].join("   ");
+
+// The same keys minus `d`, which does nothing on a Recent Directory row (issue
+// recent-directories/01, K5) and so must not be advertised there.
+export const RECENT_FOOTER_HINT = ["[enter] run", ...LAUNCH_ACTIONS.map(actionHint), "[a]dd", "[esc] quit"].join("   ");
 
 export const ADD_FOOTER_HINT = "[enter] create   [esc] cancel";
 
@@ -81,7 +84,9 @@ export function renderProfileList(profiles: ProfileStatus[], selectedIndex: numb
     return isSelected ? `${BOLD}${CYAN}${line}${RESET}` : line;
   });
 
-  const footer = `${DIM}${LIST_FOOTER_HINT}${RESET}`;
+  const recentSelected = recent !== undefined && recent.rows[selectedIndex - profiles.length] !== undefined;
+  const footerHint = recentSelected ? RECENT_FOOTER_HINT : LIST_FOOTER_HINT;
+  const footer = `${DIM}${footerHint}${RESET}`;
 
   const noticeLines = notice === undefined ? [] : ["", ...messageBlock(notice, YELLOW)];
 
@@ -110,31 +115,15 @@ function renderRecentSection(recent: RecentSection, selectedIndex: number): stri
   }
 
   const paths = recent.rows.map((row) => shortenHome(row.dir, recent.home));
-  const pathWidth = Math.max(7, ...paths.map((p) => p.length));
-  const profileWidth = Math.max(7, ...recent.rows.map((row) => row.profile.length));
+  const { lines } = layoutRecentTable(recent.rows, paths, recent.now);
 
-  const lines = recent.rows.map((row, index) => {
+  const rendered = lines.map((text, index) => {
     const isSelected = index === selectedIndex;
-    const cursor = isSelected ? "> " : "  ";
-    const mark = row.bindingConflict ? "≠binding" : "";
-    const line = `${cursor}${pad(paths[index]!, pathWidth)}  ${pad(row.profile, profileWidth)}  ${pad(formatAgo(recent.now - row.lastUsed), 9)}  ${mark}`.trimEnd();
+    const line = `${isSelected ? "> " : "  "}${text}`;
     return isSelected ? `${BOLD}${CYAN}${line}${RESET}` : line;
   });
 
-  return ["", `  ${DIM}RECENT${RESET}`, ...lines];
-}
-
-/** `~` for the home directory, so a row fits the terminal. Case-insensitive on Windows, where paths are. */
-function shortenHome(dir: string, home: string): string {
-  const fold = (text: string) => (process.platform === "win32" ? text.toLowerCase() : text);
-  if (fold(dir) === fold(home)) {
-    return "~";
-  }
-  const homePrefix = home.endsWith(path.sep) ? home : home + path.sep;
-  if (fold(dir).startsWith(fold(homePrefix))) {
-    return path.join("~", dir.slice(homePrefix.length));
-  }
-  return dir;
+  return ["", `  ${DIM}RECENT${RESET}`, ...rendered];
 }
 
 /**
