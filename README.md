@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/biehcey/cswitch/main/docs/banner.svg" alt="cswitch — run multiple Claude Code accounts on one machine" width="100%">
+</p>
+
 # cswitch
 
 Run multiple Claude Code accounts (say, work and personal) on the same machine, side by side,

@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Interactive mode opens with a colored `cswitch` banner and a one-line tagline instead of the
+  plain bold title.
+- README starts with a banner image.
+
 ## [0.4.2] - 2026-11-02
 
 - Fixed `cswitch` printing nothing and exiting on macOS and Linux after `npm install -g`. The

@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { AccountDisplay } from "./account.js";
+import { renderBanner } from "./banner.js";
 import { formatAgo, shortenHome, type RecentRow } from "./recent.js";
 import { LAUNCH_ACTIONS } from "./interactive-actions.js";
 import type { ProfileStatus } from "./status.js";
@@ -158,10 +159,10 @@ export function renderProfileList(profiles: ProfileStatus[], selectedIndex: numb
 
   const recentLines = recent === undefined ? [] : renderRecentSection(recent, profiles, selectedIndex - profiles.length);
 
-  const title = `  ${BOLD}cswitch${RESET}`;
+  const title = renderBanner();
   const heading = `  ${DIM}PROFILES${RESET}`;
 
-  return [title, "", heading, ...rows, ...recentLines, ...noticeLines, "", footer].join("\n") + "\n";
+  return [...title, "", heading, ...rows, ...recentLines, ...noticeLines, "", footer].join("\n") + "\n";
 }
 
 /** Everything the RECENT section needs besides the rows: `home` to shorten paths to `~`, `now` to say "2h ago". */

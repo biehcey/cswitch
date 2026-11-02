@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
+import { BANNER_ART, BANNER_TAGLINE } from "../src/banner.js";
 import { LAUNCH_ACTIONS } from "../src/interactive-actions.js";
 import { ADD_FOOTER_HINT, CLEAR_SCREEN, LIST_FOOTER_HINT, REMOVE_FOOTER_HINT, renderAddScreen, renderProfileList, renderRemoveScreen } from "../src/interactive-view.js";
 import type { RecentRow } from "../src/recent.js";
@@ -69,11 +70,16 @@ test("renderProfileList: marks only the in-place (Default) profile, with the wor
   assert.doesNotMatch(workLine, /default/);
 });
 
-test("renderProfileList: opens with a cswitch title and a PROFILES heading", () => {
+test("renderProfileList: opens with the cswitch banner and tagline, then a PROFILES heading", () => {
   const lines = stripAnsi(renderProfileList([profile()], 0)).split("\n");
 
-  assert.equal(lines[0]!.trim(), "cswitch");
-  assert.ok(lines.some((l) => l.trim() === "PROFILES"));
+  assert.deepEqual(
+    lines.slice(0, BANNER_ART.length).map((l) => l.trimEnd()),
+    BANNER_ART.map((l) => `  ${l}`.trimEnd()),
+  );
+  assert.equal(lines[BANNER_ART.length]!.trim(), BANNER_TAGLINE);
+  const headingIndex = lines.findIndex((l) => l.trim() === "PROFILES");
+  assert.ok(headingIndex > BANNER_ART.length);
 });
 
 test("renderProfileList: the selected row is visually distinguished (colored)", () => {
