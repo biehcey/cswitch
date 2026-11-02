@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 import { LAUNCH_ACTIONS } from "../src/interactive-actions.js";
 import { ADD_FOOTER_HINT, CLEAR_SCREEN, LIST_FOOTER_HINT, REMOVE_FOOTER_HINT, renderAddScreen, renderProfileList, renderRemoveScreen } from "../src/interactive-view.js";
+import type { RecentRow } from "../src/recent.js";
 import type { ProfileStatus } from "../src/status.js";
 
 // eslint-disable-next-line no-control-regex
@@ -171,4 +173,68 @@ test("LAUNCH_ACTIONS: each key launches a claude invocation, and no key collides
     assert.ok(!["a", "d", "y", "n"].includes(action.key), `[${action.key}] collides with an existing list key`);
     assert.ok(action.label.startsWith(action.key), "a label must start with its own key, so the footer can bracket it");
   }
+});
+
+const HOME = process.platform === "win32" ? "C:\\Users\\me" : "/home/me";
+const NOW = Date.UTC(2026, 10, 2, 12, 0, 0);
+const HOUR = 60 * 60 * 1000;
+
+function recentRow(overrides: Partial<RecentRow> = {}): RecentRow {
+  return { dir: path.join(HOME, "repos", "alpha"), profile: "work", lastUsed: NOW - 2 * HOUR, bindingConflict: false, ...overrides };
+}
+
+function lineContaining(text: string, needle: string): string {
+  const line = text.split("\n").find((candidate) => candidate.includes(needle));
+  assert.ok(line !== undefined, `no line contains ${needle}`);
+  return line;
+}
+
+test("renderProfileList: Recent Directories appear under a RECENT heading with a ~-shortened path, the profile and how long ago", () => {
+  const text = stripAnsi(renderProfileList([profile()], 0, undefined, { rows: [recentRow()], home: HOME, now: NOW }));
+
+  assert.match(text, /RECENT/);
+  const row = lineContaining(text, "alpha");
+  assert.ok(row.includes(path.join("~", "repos", "alpha")), row);
+  assert.match(row, /work/);
+  assert.match(row, /2h ago/);
+  assert.ok(text.indexOf("RECENT") > text.indexOf("PROFILE"));
+});
+
+test("renderProfileList: relative times read as just now / minutes / hours / days", () => {
+  const rows = [
+    recentRow({ dir: path.join(HOME, "a1"), lastUsed: NOW - 10 * 1000 }),
+    recentRow({ dir: path.join(HOME, "a2"), lastUsed: NOW - 5 * 60 * 1000 }),
+    recentRow({ dir: path.join(HOME, "a3"), lastUsed: NOW - 3 * HOUR }),
+    recentRow({ dir: path.join(HOME, "a4"), lastUsed: NOW - 4 * 24 * HOUR }),
+  ];
+  const text = stripAnsi(renderProfileList([profile()], 0, undefined, { rows, home: HOME, now: NOW }));
+
+  assert.match(lineContaining(text, "a1"), /just now/);
+  assert.match(lineContaining(text, "a2"), /5m ago/);
+  assert.match(lineContaining(text, "a3"), /3h ago/);
+  assert.match(lineContaining(text, "a4"), /4d ago/);
+});
+
+test("renderProfileList: only a row whose directory is bound to another profile carries the ≠binding mark", () => {
+  const rows = [recentRow({ dir: path.join(HOME, "bound-elsewhere"), bindingConflict: true }), recentRow({ dir: path.join(HOME, "fine") })];
+  const text = stripAnsi(renderProfileList([profile()], 0, undefined, { rows, home: HOME, now: NOW }));
+
+  assert.match(lineContaining(text, "bound-elsewhere"), /≠binding/);
+  assert.doesNotMatch(lineContaining(text, "fine"), /≠binding/);
+});
+
+test("renderProfileList: a selectedIndex past the profiles selects a Recent Directory row — one list, two sections", () => {
+  const profiles = [profile({ name: "default" }), profile({ name: "work", inPlace: false })];
+  const rows = [recentRow({ dir: path.join(HOME, "first") }), recentRow({ dir: path.join(HOME, "second") })];
+  const text = stripAnsi(renderProfileList(profiles, 3, undefined, { rows, home: HOME, now: NOW }));
+
+  assert.match(lineContaining(text, "second"), /^> /);
+  assert.doesNotMatch(lineContaining(text, "first"), /^> /);
+  assert.doesNotMatch(lineContaining(text, "default"), /^> /);
+});
+
+test("renderProfileList: with no Recent Directories there is no RECENT heading at all", () => {
+  const text = stripAnsi(renderProfileList([profile()], 0, undefined, { rows: [], home: HOME, now: NOW }));
+
+  assert.doesNotMatch(text, /RECENT/);
 });

@@ -1,4 +1,6 @@
+import path from "node:path";
 import { formatAccount } from "./account.js";
+import { formatAgo, type RecentRow } from "./recent.js";
 import { LAUNCH_ACTIONS, type LaunchAction } from "./interactive-actions.js";
 import type { ProfileStatus } from "./status.js";
 import { loginStateOf } from "./status.js";
@@ -61,7 +63,7 @@ function loginStateColor(state: ReturnType<typeof loginStateOf>): string {
  * (§6.4/§10.9), which the redraw after a deletion would otherwise wipe; the
  * flag-based `remove` writes the same text to stderr.
  */
-export function renderProfileList(profiles: ProfileStatus[], selectedIndex: number, notice?: string): string {
+export function renderProfileList(profiles: ProfileStatus[], selectedIndex: number, notice?: string, recent?: RecentSection): string {
   const nameWidth = Math.max(7, ...profiles.map((p) => p.name.length));
   const accountWidth = Math.max(7, ...profiles.map((p) => formatAccount(p.account).length));
 
@@ -83,7 +85,56 @@ export function renderProfileList(profiles: ProfileStatus[], selectedIndex: numb
 
   const noticeLines = notice === undefined ? [] : ["", ...messageBlock(notice, YELLOW)];
 
-  return [header, ...rows, ...noticeLines, "", footer].join("\n") + "\n";
+  const recentLines = recent === undefined ? [] : renderRecentSection(recent, selectedIndex - profiles.length);
+
+  return [header, ...rows, ...recentLines, ...noticeLines, "", footer].join("\n") + "\n";
+}
+
+/** Everything the RECENT section needs besides the rows: `home` to shorten paths to `~`, `now` to say "2h ago". */
+export interface RecentSection {
+  rows: RecentRow[];
+  home: string;
+  now: number;
+}
+
+/**
+ * The RECENT section under the Profile table (issue recent-directories/01,
+ * K4): path, Profile, how long ago, and a `≠binding` mark. The cursor moves
+ * through the Profiles and these rows as one list, so `selectedIndex` here is
+ * already offset past the Profiles — negative means a Profile is selected.
+ * No rows, no section: not even the heading.
+ */
+function renderRecentSection(recent: RecentSection, selectedIndex: number): string[] {
+  if (recent.rows.length === 0) {
+    return [];
+  }
+
+  const paths = recent.rows.map((row) => shortenHome(row.dir, recent.home));
+  const pathWidth = Math.max(7, ...paths.map((p) => p.length));
+  const profileWidth = Math.max(7, ...recent.rows.map((row) => row.profile.length));
+
+  const lines = recent.rows.map((row, index) => {
+    const isSelected = index === selectedIndex;
+    const cursor = isSelected ? "> " : "  ";
+    const mark = row.bindingConflict ? "≠binding" : "";
+    const line = `${cursor}${pad(paths[index]!, pathWidth)}  ${pad(row.profile, profileWidth)}  ${pad(formatAgo(recent.now - row.lastUsed), 9)}  ${mark}`.trimEnd();
+    return isSelected ? `${BOLD}${CYAN}${line}${RESET}` : line;
+  });
+
+  return ["", `  ${DIM}RECENT${RESET}`, ...lines];
+}
+
+/** `~` for the home directory, so a row fits the terminal. Case-insensitive on Windows, where paths are. */
+function shortenHome(dir: string, home: string): string {
+  const fold = (text: string) => (process.platform === "win32" ? text.toLowerCase() : text);
+  if (fold(dir) === fold(home)) {
+    return "~";
+  }
+  const homePrefix = home.endsWith(path.sep) ? home : home + path.sep;
+  if (fold(dir).startsWith(fold(homePrefix))) {
+    return path.join("~", dir.slice(homePrefix.length));
+  }
+  return dir;
 }
 
 /**

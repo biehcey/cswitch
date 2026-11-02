@@ -16,6 +16,8 @@ import { parseInitArgs } from "./init-args.js";
 import { runInit } from "./init.js";
 import { runInteractive } from "./interactive.js";
 import { runLaunch } from "./launch.js";
+import { parseRecentArgs } from "./recent-args.js";
+import { runRecent } from "./recent.js";
 import { parseRemoveArgs, REMOVE_HELP_TEXT } from "./remove-args.js";
 import { runRemove } from "./remove.js";
 import { parseShellInitArgs } from "./shell-init-args.js";
@@ -118,6 +120,17 @@ function handleStatus(rest: string[]): number {
   return runStatus({ home: resolveHome(process.env), cwd: process.cwd(), json: parsed.json });
 }
 
+function handleRecent(rest: string[]): number {
+  const parsed = parseRecentArgs(rest);
+  if (parsed.kind === "error") {
+    process.stderr.write(`${parsed.message}
+`);
+    return EXIT_USAGE;
+  }
+
+  return runRecent({ home: resolveHome(process.env) });
+}
+
 function handleUnbind(rest: string[]): number {
   const parsed = parseUnbindArgs(rest);
   if (parsed.kind === "error") {
@@ -190,6 +203,9 @@ export async function run(argv: string[]): Promise<number> {
       }
       if (parsed.name === "copy") {
         return handleCopy(parsed.rest);
+      }
+      if (parsed.name === "recent") {
+        return handleRecent(parsed.rest);
       }
       if (parsed.name === "shell-init") {
         return handleShellInit(parsed.rest);

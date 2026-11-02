@@ -324,14 +324,17 @@ export function isQuiet(flagQuiet: boolean, env: NodeJS.ProcessEnv): boolean {
  * accurate. Until then, the parent ignores SIGINT/SIGTERM so Ctrl-C reaches
  * the child directly (same process group).
  */
-export function spawnAndWait(command: string[], env: NodeJS.ProcessEnv): Promise<number> {
+export function spawnAndWait(command: string[], env: NodeJS.ProcessEnv, cwd: string): Promise<number> {
   return new Promise((resolve) => {
     // cross-spawn, not node:child_process directly: on Windows, a global npm
     // install's claude.cmd shim can't be spawned by plain spawn() without
     // shell: true, and shell: true concatenates args unescaped (a Node
     // deprecation warning as of DEP0190) — cross-spawn resolves and invokes
     // .cmd/.bat shims safely without that risk.
-    const child = spawn(command[0]!, command.slice(1), { stdio: "inherit", env });
+    // `cwd` is the same directory the Binding was resolved against. From the
+    // command line that is cswitch's own cwd, so passing it changes nothing;
+    // from a Recent Directory row it is that row's directory (ADR-0002).
+    const child = spawn(command[0]!, command.slice(1), { stdio: "inherit", env, cwd });
 
     const ignoreSignal = () => {};
     process.on("SIGINT", ignoreSignal);
@@ -402,5 +405,5 @@ export async function runLaunch(params: RunLaunchParams): Promise<number> {
     process.stderr.write(`${formatStartupLine(record.name, account, usedDefault)}\n`);
   }
 
-  return spawnAndWait(buildLaunchCommand(command, cswitchHome, env), buildChildEnv(env, cswitchHome, record));
+  return spawnAndWait(buildLaunchCommand(command, cswitchHome, env), buildChildEnv(env, cswitchHome, record), cwd);
 }

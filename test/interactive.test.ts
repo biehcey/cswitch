@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -1103,5 +1103,130 @@ test("runInteractive: launch keys restore the cursor before handing the terminal
     await resultPromise;
 
     assert.ok(written.includes(HIDE_CURSOR));
+  });
+});
+
+/** Writes a Recent Directory into `profile`'s history.jsonl (index 0 of seedExistingProfiles is the in-place Default). */
+function seedRecent(home: string, profile: string, inPlace: boolean, dirName: string, timestamp: number): string {
+  const dir = path.join(home, "repos", dirName);
+  mkdirSync(dir, { recursive: true });
+  const configDir = inPlace ? path.join(home, ".claude") : path.join(cswitchHomePath(home), "profiles", profile);
+  mkdirSync(configDir, { recursive: true });
+  const historyFile = path.join(configDir, "history.jsonl");
+  const previous = existsSync(historyFile) ? readFileSync(historyFile, "utf8") : "";
+  writeFileSync(historyFile, previous + JSON.stringify({ display: "hi", timestamp, project: dir, sessionId: "s" }) + "\n");
+  return dir;
+}
+
+function startInteractive(home: string, overrides: Partial<Parameters<typeof runInteractive>[0]> = {}) {
+  const stdin = fakeStdin();
+  const written: string[] = [];
+  const launchCalls: RunLaunchParams[] = [];
+  const resultPromise = runInteractive({
+    home,
+    cswitchHome: cswitchHomePath(home),
+    env: {},
+    cwd: home,
+    io: fakeIo(),
+    stdin,
+    write: (text) => written.push(text),
+    launch: async (params) => {
+      launchCalls.push(params);
+      return 0;
+    },
+    ...overrides,
+  });
+  return { stdin, written, launchCalls, resultPromise };
+}
+
+const DOWN = "\x1b[B";
+const UP = "\x1b[A";
+
+test("runInteractive: Enter on a Recent Directory row launches claude in that directory, with that row's profile", async () => {
+  await withFakeHome(async (home) => {
+    seedExistingProfiles(home, ["default", "work"]);
+    const alpha = seedRecent(home, "work", false, "alpha", Date.now());
+    const { stdin, launchCalls, resultPromise } = startInteractive(home);
+
+    await settle();
+    stdin.write(DOWN); // default -> work
+    await settle();
+    stdin.write(DOWN); // work -> RECENT alpha
+    await settle();
+    stdin.write("\r");
+    await resultPromise;
+
+    assert.equal(launchCalls.length, 1);
+    assert.equal(launchCalls[0]!.profileName, "work");
+    assert.equal(launchCalls[0]!.cwd, alpha);
+    assert.deepEqual(launchCalls[0]!.command, ["claude"]);
+  });
+});
+
+test("runInteractive: the launch keys on a Recent Directory row run in that directory too — 'c' continues there", async () => {
+  await withFakeHome(async (home) => {
+    seedExistingProfiles(home, ["default", "work"]);
+    const alpha = seedRecent(home, "default", true, "alpha", Date.now());
+    const { stdin, launchCalls, resultPromise } = startInteractive(home);
+
+    await settle();
+    stdin.write(UP); // wraps from the first Profile to the last row, which is the Recent one
+    await settle();
+    stdin.write("c");
+    await resultPromise;
+
+    assert.equal(launchCalls[0]!.profileName, "default");
+    assert.equal(launchCalls[0]!.cwd, alpha);
+    assert.deepEqual(launchCalls[0]!.command, ["claude", "--continue"]);
+  });
+});
+
+test("runInteractive: 'd' on a Recent Directory row does nothing — it never offers to remove a Profile", async () => {
+  await withFakeHome(async (home) => {
+    seedExistingProfiles(home, ["default", "work"]);
+    seedRecent(home, "work", false, "alpha", Date.now());
+    const removeCalls: string[] = [];
+    const { stdin, written, resultPromise } = startInteractive(home, {
+      remove: ({ name }) => {
+        removeCalls.push(name);
+        return { kind: "ok" };
+      },
+    });
+
+    await settle();
+    stdin.write(UP); // the Recent row for "work"
+    await settle();
+    stdin.write("d");
+    await settle();
+    stdin.write("y");
+    await settle();
+
+    assert.deepEqual(removeCalls, []);
+    assert.ok(written.every((chunk) => !/this cannot be undone/.test(chunk)));
+
+    stdin.write("\x1b");
+    assert.equal(await resultPromise, EXIT_OK);
+  });
+});
+
+test("runInteractive: a Recent row whose directory is bound to another profile is marked ≠binding, and still launches with its own profile", async () => {
+  await withFakeHome(async (home) => {
+    seedExistingProfiles(home, ["default", "work"]);
+    const alpha = seedRecent(home, "default", true, "alpha", Date.now());
+    const configPath = path.join(cswitchHomePath(home), "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.bindings = [{ prefix: realpathSync.native(alpha), profile: "work" }];
+    writeFileSync(configPath, JSON.stringify(config));
+    const { stdin, written, launchCalls, resultPromise } = startInteractive(home);
+
+    await settle();
+    assert.ok(written.some((chunk) => chunk.includes("≠binding")));
+    stdin.write(UP);
+    await settle();
+    stdin.write("\r");
+    await resultPromise;
+
+    assert.equal(launchCalls[0]!.profileName, "default");
+    assert.equal(launchCalls[0]!.cwd, alpha);
   });
 });

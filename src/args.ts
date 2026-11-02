@@ -6,6 +6,7 @@ export const SUBCOMMAND_NAMES = [
   "unbind",
   "copy",
   "status",
+  "recent",
   "shell-init",
 ] as const;
 

@@ -11,7 +11,9 @@ USAGE
 
   With no arguments on a terminal, cswitch opens the interactive profile list: arrow
   keys move, [enter] runs claude in the selected profile, [c] --continue, [r] --resume,
-  [m] mcp list, [a] adds, [d] removes, [esc] quits. It runs setup first if ~/.cswitch
+  [m] mcp list, [a] adds, [d] removes, [esc] quits. Below the profiles, RECENT lists
+  the directories you last worked in; on one of those rows the same keys run claude in
+  that directory with that row's profile. It runs setup first if ~/.cswitch
   does not exist yet. Off a terminal — a pipe, a script, CI — there is no one to drive
   it, so this help is printed instead.
 
@@ -24,6 +26,7 @@ SUBCOMMANDS
   unbind <dir>         remove a binding
   copy <src> <dst>     copy enabled plugins and MCP servers between profiles
   status               show what runs here, and every profile
+  recent               list the directories you last ran claude in, per profile
   shell-init <shell>   print the \`claude\` wrapper for your shell
 
 OPTIONS  (only valid before \`--\`)

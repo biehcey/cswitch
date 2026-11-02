@@ -7,6 +7,7 @@ import { runInit } from "./init.js";
 import { CLEAR_SCREEN, HIDE_CURSOR, SHOW_CURSOR, renderAddScreen, renderProfileList, renderRemoveScreen } from "./interactive-view.js";
 import { type KeyboardInput, type RawModeStdin, listenForKeys } from "./keyboard.js";
 import { type RunLaunchParams, runLaunch } from "./launch.js";
+import { listRecentRows } from "./recent.js";
 import { removeProfile, type RemoveProfileParams, type RemoveProfileResult } from "./remove.js";
 import { buildStatusReport } from "./status.js";
 
@@ -99,6 +100,10 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
   let config = params.config;
   const report = buildStatusReport({ home, cswitchHome, config, cwd });
   let profiles = report.profiles;
+  let recentRows = listRecentRows({ home, cswitchHome, config });
+  // The cursor runs through the Profiles and then the Recent Directories as one
+  // list (issue K4): indexes past the Profiles land on a Recent row.
+  const rowCount = () => profiles.length + recentRows.length;
 
   return new Promise((resolve) => {
     const here = report.here;
@@ -123,7 +128,7 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
         case "remove":
           return renderRemoveScreen(removeTarget, removeError);
         case "list":
-          return renderProfileList(profiles, selectedIndex, listNotice);
+          return renderProfileList(profiles, selectedIndex, listNotice, { rows: recentRows, home, now: Date.now() });
       }
     };
 
@@ -178,8 +183,9 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
       }
       config = reloaded;
       profiles = buildStatusReport({ home, cswitchHome, config, cwd }).profiles;
+      recentRows = listRecentRows({ home, cswitchHome, config });
       const focusIndex = focusName === undefined ? -1 : profiles.findIndex((p) => p.name === focusName);
-      selectedIndex = focusIndex >= 0 ? focusIndex : Math.min(selectedIndex, Math.max(profiles.length - 1, 0));
+      selectedIndex = focusIndex >= 0 ? focusIndex : Math.min(selectedIndex, Math.max(rowCount() - 1, 0));
       return true;
     };
 
@@ -192,18 +198,22 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
      * exit code is whatever the launch resolves to, later.
      */
     const runInProfile = (command: string[]) => {
-      const profile = profiles[selectedIndex]!;
+      // A Recent row carries its own directory and Profile; the Profile wins
+      // over that directory's Binding because it is named explicitly (ADR-0002).
+      const recent = recentRows[selectedIndex - profiles.length];
+      const profileName = recent === undefined ? profiles[selectedIndex]!.name : recent.profile;
+      const launchCwd = recent === undefined ? cwd : recent.dir;
       keyboard.stop();
       write(SHOW_CURSOR);
       launch({
         home,
         cswitchHome,
         config,
-        profileName: profile.name,
+        profileName,
         quiet: false,
         command,
         env,
-        cwd,
+        cwd: launchCwd,
       }).then(resolve, (err: unknown) => {
         process.stderr.write(`cswitch: unexpected error while launching: ${(err as Error).message}\n`);
         resolve(EXIT_RUNTIME);
@@ -312,17 +322,17 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
           render();
           return;
         }
-        if (profiles.length === 0) {
+        if (rowCount() === 0) {
           return;
         }
         switch (key) {
           case "up":
-            selectedIndex = (selectedIndex - 1 + profiles.length) % profiles.length;
+            selectedIndex = (selectedIndex - 1 + rowCount()) % rowCount();
             listNotice = undefined;
             render();
             return;
           case "down":
-            selectedIndex = (selectedIndex + 1) % profiles.length;
+            selectedIndex = (selectedIndex + 1) % rowCount();
             listNotice = undefined;
             render();
             return;
@@ -333,9 +343,13 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
             // The Default Profile is never offered for removal, so `d` on it is
             // a no-op rather than a rejected confirmation — that is what keeps
             // `init`'s "never touches ~/.claude" promise (spec §10.7).
-            if (char === "d" && !profiles[selectedIndex]!.inPlace) {
+            //
+            // A Recent row is no Profile at all: `d` there would delete a Profile
+            // the user is not looking at, so it does nothing (issue K5).
+            const selectedProfile = profiles[selectedIndex];
+            if (char === "d" && selectedProfile !== undefined && !selectedProfile.inPlace) {
               screen = "remove";
-              removeTarget = profiles[selectedIndex]!.name;
+              removeTarget = selectedProfile.name;
               removeError = undefined;
               listNotice = undefined;
               render();
