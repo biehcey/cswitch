@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-02
+
 - Interactive mode opens with a colored `cswitch` banner and a one-line tagline instead of the
   plain bold title.
 - README starts with a banner image.
