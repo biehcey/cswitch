@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-03
+
+- Interactive mode's usage limits also show how long until each window resets:
+  `5h 91% (1h 20m) · week 40% (3d 13h)`. The time comes from the same Anthropic response as the
+  percents and is never written to disk. If it is missing or already past, only the percent shows.
+
 ## [0.5.1] - 2026-11-02
 
 - Interactive mode draws on the terminal's alternate screen, so quitting it (Esc or Ctrl-C) or
