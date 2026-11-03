@@ -105,6 +105,9 @@ export function profileSettingsPath(home: string, cswitchHome: string, record: P
  * non-in-place profile, or strips any inherited value for an in-place one.
  * This, together with profileConfigDir, is the only place `inPlace` is read
  * (spec §5.2 step 2) — the rest of the launcher treats profiles uniformly.
+ * `CSWITCH_PROFILE` is always set to the profile's name — for the Default
+ * Profile it's the only reliable signal of which profile a script (e.g. a
+ * statusLine command) is running under (feature-ideas issue 02).
  */
 export function buildChildEnv(baseEnv: NodeJS.ProcessEnv, cswitchHome: string, record: ProfileRecord): NodeJS.ProcessEnv {
   const env = { ...baseEnv };
@@ -114,6 +117,7 @@ export function buildChildEnv(baseEnv: NodeJS.ProcessEnv, cswitchHome: string, r
   } else {
     env.CLAUDE_CONFIG_DIR = configDir;
   }
+  env.CSWITCH_PROFILE = record.name;
   return env;
 }
 

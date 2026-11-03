@@ -92,6 +92,22 @@ cswitch work -- claude mcp list
 cswitch work -- node script.js
 ```
 
+The launched process gets `CSWITCH_PROFILE` set to the profile's name — for the default profile
+too. A status line can use it to keep the profile on screen for the whole session. Add one to
+`~/.cswitch/settings.json` (shared by every profile):
+
+```jsonc
+// macOS / Linux
+"statusLine": { "type": "command", "command": "echo \"$CSWITCH_PROFILE\"" }
+
+// Windows
+"statusLine": { "type": "command", "command": "powershell -NoProfile -Command \"[Environment]::GetEnvironmentVariable('CSWITCH_PROFILE')\"" }
+```
+
+It stays empty when `claude` was started without cswitch. If you already have a status line
+script, read `CSWITCH_PROFILE` from it instead: `~/.cswitch/settings.json` wins over your own
+`~/.claude/settings.json`.
+
 ### Interactive mode
 
 Running `cswitch` with no arguments (on a real terminal) opens the profile list:
