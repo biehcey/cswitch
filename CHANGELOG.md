@@ -6,7 +6,8 @@ All notable changes to this project are documented here.
 
 - The launched process gets `CSWITCH_PROFILE` set to the profile's name, including for the default
   profile, so scripts such as a Claude Code status line can show which profile they run under. The
-  README has a `statusLine` example for macOS/Linux and Windows.
+  README has a `statusLine` script for macOS/Linux and Windows that shows the profile name in a
+  color of its own per profile.
 
 ## [0.6.0] - 2026-11-03
 

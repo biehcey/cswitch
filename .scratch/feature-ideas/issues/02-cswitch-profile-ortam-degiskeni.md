@@ -37,3 +37,17 @@ Sonuç: status line script'i `claude`'un ortam değişkenlerini miras alıyor.
 - [x] Miras kalan eski `CSWITCH_PROFILE` değeri üzerine yazılır.
 - [x] README'de PowerShell ve sh için `statusLine` örneği var.
 - [x] CHANGELOG'da bir satır var.
+
+## Comments
+
+**2026-11-03, sağa yaslama denendi, vazgeçildi.** Claude Code status line'ın yerini değiştirmeye
+izin vermiyor (mesaj kutusunun altında, solda). `COLUMNS`'a göre başa boşluk koyarak sağa yaslamak
+denendi: Claude Code çıktının başındaki boşlukları sildiği için yazı yine solda göründü. Olası
+çözümler (başa `ESC[0m` koymak ya da boşluk yerine `U+2800`) denenmedi; profil adının solda
+kalmasına karar verildi.
+
+**2026-11-03, renk eklendi.** Kullanıcının kararıyla README örneği profil başına renk gösteriyor
+(`work` kırmızı, `personal` yeşil, diğerleri camgöbeği). Tek satırlık komut yerine küçük bir script
+dosyası (`statusline.sh` / `statusline.ps1`) kullanıldı: renk seçimi değişken gerektiriyor, tek
+satırlık Windows komutunda ise `$` kullanılamıyordu. `.ps1` için `-ExecutionPolicy Bypass`
+gerekli. Gerçek Claude Code oturumunda (Windows) `work` kırmızı, `personal` yeşil göründü.

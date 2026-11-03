@@ -93,18 +93,48 @@ cswitch work -- node script.js
 ```
 
 The launched process gets `CSWITCH_PROFILE` set to the profile's name — for the default profile
-too. A status line can use it to keep the profile on screen for the whole session. Add one to
-`~/.cswitch/settings.json` (shared by every profile):
+too. A status line can use it to keep the profile on screen for the whole session, in a color of
+its own. Save a small script next to your config and edit the profile-to-color list at its top
+(31 red, 32 green, 33 yellow, 34 blue, 35 magenta, 36 cyan).
 
-```jsonc
-// macOS / Linux
-"statusLine": { "type": "command", "command": "echo \"$CSWITCH_PROFILE\"" }
+macOS / Linux — `~/.cswitch/statusline.sh`:
 
-// Windows
-"statusLine": { "type": "command", "command": "powershell -NoProfile -Command \"[Environment]::GetEnvironmentVariable('CSWITCH_PROFILE')\"" }
+```sh
+#!/bin/sh
+# Profile name -> ANSI color (31 red, 32 green, 33 yellow, 34 blue, 35 magenta, 36 cyan)
+[ -n "$CSWITCH_PROFILE" ] || exit 0
+case "$CSWITCH_PROFILE" in
+  work) color=31 ;;
+  personal) color=32 ;;
+  *) color=36 ;;
+esac
+printf '\033[%sm%s\033[0m' "$color" "$CSWITCH_PROFILE"
 ```
 
-It stays empty when `claude` was started without cswitch. If you already have a status line
+```json
+"statusLine": { "type": "command", "command": "sh ~/.cswitch/statusline.sh" }
+```
+
+Windows — `%USERPROFILE%\.cswitch\statusline.ps1`:
+
+```powershell
+# Profile name -> ANSI color (31 red, 32 green, 33 yellow, 34 blue, 35 magenta, 36 cyan)
+$colors = @{ work = 31; personal = 32 }
+
+$name = $env:CSWITCH_PROFILE
+if (-not $name) { exit }
+$color = if ($colors.ContainsKey($name)) { $colors[$name] } else { 36 }
+$esc = [char]27
+[Console]::Out.Write("$esc[${color}m$name$esc[0m")
+```
+
+```json
+"statusLine": { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/you/.cswitch/statusline.ps1" }
+```
+
+Put the `statusLine` line in `~/.cswitch/settings.json` (shared by every profile); on Windows,
+use your own full path. `-ExecutionPolicy Bypass` applies to that one run only. The status line
+stays empty when `claude` was started without cswitch. If you already have a status line
 script, read `CSWITCH_PROFILE` from it instead: `~/.cswitch/settings.json` wins over your own
 `~/.claude/settings.json`.
 
