@@ -152,8 +152,10 @@ function runProfileListScreen(params: ProfileListScreenParams): Promise<number> 
           return renderAddScreen(draftName, addError);
         case "remove":
           return renderRemoveScreen(removeTarget, removeError);
-        case "list":
-          return renderProfileList(profiles, selectedIndex, listNotice, { rows: recentRows, home, now: Date.now() }, usage);
+        case "list": {
+          const now = Date.now();
+          return renderProfileList(profiles, selectedIndex, listNotice, { rows: recentRows, home, now }, usage, now);
+        }
       }
     };
 

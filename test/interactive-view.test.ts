@@ -85,8 +85,8 @@ test("renderProfileList: opens with the cswitch banner and tagline, then a PROFI
 test("renderProfileList: shows each profile's usage limits at the end of its row, aligned", () => {
   const profiles = [profile({ name: "home", inPlace: true }), profile({ name: "work", inPlace: false, account: { kind: "known", emailAddress: "longer@company.com" } })];
   const usage = new Map([
-    ["home", { fiveHourPercent: 37, weeklyPercent: 7 }],
-    ["work", { fiveHourPercent: 91, weeklyPercent: 63 }],
+    ["home", { fiveHour: { percent: 37 }, weekly: { percent: 7 } }],
+    ["work", { fiveHour: { percent: 91 }, weekly: { percent: 63 } }],
   ]);
   const lines = stripAnsi(renderProfileList(profiles, 0, undefined, undefined, usage)).split("\n");
 
@@ -97,6 +97,16 @@ test("renderProfileList: shows each profile's usage limits at the end of its row
   assert.equal(homeLine.indexOf("5h"), workLine.indexOf("5h"));
 });
 
+test("renderProfileList: shows how long until each usage window resets, counted from `now`", () => {
+  const now = Date.parse("2026-11-03T09:30:00Z");
+  const profiles = [profile({ name: "home", inPlace: true })];
+  const usage = new Map([
+    ["home", { fiveHour: { percent: 91, resetsAt: Date.parse("2026-11-03T10:50:00Z") }, weekly: { percent: 40, resetsAt: Date.parse("2026-11-06T23:00:00Z") } }],
+  ]);
+  const lines = stripAnsi(renderProfileList(profiles, 0, undefined, undefined, usage, now)).split("\n");
+  assert.match(lines.find((l) => l.includes("home"))!, /5h 91% \(1h 20m\) · week 40% \(3d 13h\)$/);
+});
+
 test("renderProfileList: without usage, rows look exactly as before", () => {
   const profiles = [profile({ name: "home", inPlace: true }), profile({ name: "work", inPlace: false })];
   assert.equal(renderProfileList(profiles, 0, undefined, undefined, new Map()), renderProfileList(profiles, 0));
@@ -105,9 +115,9 @@ test("renderProfileList: without usage, rows look exactly as before", () => {
 test("renderProfileList: a nearly full limit is yellow, a full one red", () => {
   const profiles = [profile({ name: "a", inPlace: true }), profile({ name: "b", inPlace: false }), profile({ name: "c", inPlace: false })];
   const usage = new Map([
-    ["a", { fiveHourPercent: 10 }],
-    ["b", { fiveHourPercent: 85 }],
-    ["c", { weeklyPercent: 100 }],
+    ["a", { fiveHour: { percent: 10 } }],
+    ["b", { fiveHour: { percent: 85 } }],
+    ["c", { weekly: { percent: 100 } }],
   ]);
   // Select nothing usage-related: index 0's whole row is bold cyan, so judge b and c.
   const raw = renderProfileList(profiles, 0, undefined, undefined, usage).split("\n");

@@ -83,17 +83,34 @@ test("credentialsServiceName: the in-place (~/.claude) profile uses Claude Code'
 
 // --- parseUsageLimits ------------------------------------------------------
 
-test("parseUsageLimits: picks the 5-hour and weekly utilization", () => {
+test("parseUsageLimits: picks the 5-hour and weekly utilization and when each resets", () => {
   const limits = parseUsageLimits({
-    five_hour: { utilization: 37.0, resets_at: "2026-11-02T16:10:00+00:00" },
+    // The real endpoint sends microseconds and a +00:00 offset.
+    five_hour: { utilization: 37.0, resets_at: "2026-11-02T16:10:00.083387+00:00" },
     seven_day: { utilization: 7.4, resets_at: "2026-11-06T23:00:00+00:00" },
     seven_day_opus: null,
   });
-  assert.deepEqual(limits, { fiveHourPercent: 37, weeklyPercent: 7 });
+  assert.deepEqual(limits, {
+    fiveHour: { percent: 37, resetsAt: Date.parse("2026-11-02T16:10:00.083Z") },
+    weekly: { percent: 7, resetsAt: Date.parse("2026-11-06T23:00:00Z") },
+  });
+});
+
+test("parseUsageLimits: a missing or unreadable resets_at is left out, the percent still shows", () => {
+  const limits = parseUsageLimits({
+    five_hour: { utilization: 37, resets_at: null },
+    seven_day: { utilization: 7, resets_at: "next tuesday-ish" },
+  });
+  assert.deepEqual(limits, { fiveHour: { percent: 37 }, weekly: { percent: 7 } });
+});
+
+test("parseUsageLimits: only an ISO 8601 resets_at counts — Date.parse would read \"foo 2030\" as a year", () => {
+  const limits = parseUsageLimits({ five_hour: { utilization: 37, resets_at: "foo 2030" }, seven_day: { utilization: 7, resets_at: "1" } });
+  assert.deepEqual(limits, { fiveHour: { percent: 37 }, weekly: { percent: 7 } });
 });
 
 test("parseUsageLimits: a window the account doesn't have is left out, not shown as 0%", () => {
-  assert.deepEqual(parseUsageLimits({ five_hour: { utilization: 12 }, seven_day: null }), { fiveHourPercent: 12 });
+  assert.deepEqual(parseUsageLimits({ five_hour: { utilization: 12 }, seven_day: null }), { fiveHour: { percent: 12 } });
 });
 
 test("parseUsageLimits: an unrecognized shape reads as nothing to show", () => {
@@ -111,7 +128,7 @@ test("fetchUsageLimits: sends the token as a bearer and parses a 200", async () 
     return new Response(JSON.stringify({ five_hour: { utilization: 91 }, seven_day: { utilization: 63 } }), { status: 200 });
   });
   assert.equal(seenAuth, "Bearer tok");
-  assert.deepEqual(limits, { fiveHourPercent: 91, weeklyPercent: 63 });
+  assert.deepEqual(limits, { fiveHour: { percent: 91 }, weekly: { percent: 63 } });
 });
 
 test("fetchUsageLimits: a non-200, a network error or bad JSON all read as undefined", async () => {
@@ -128,8 +145,32 @@ test("fetchUsageLimits: a non-200, a network error or bad JSON all read as undef
 // --- formatUsageLimits / opt-out -------------------------------------------
 
 test("formatUsageLimits: short form for the list row", () => {
-  assert.equal(formatUsageLimits({ fiveHourPercent: 37, weeklyPercent: 7 }), "5h 37% · week 7%");
-  assert.equal(formatUsageLimits({ weeklyPercent: 50 }), "week 50%");
+  assert.equal(formatUsageLimits({ fiveHour: { percent: 37 }, weekly: { percent: 7 } }, NOW), "5h 37% · week 7%");
+  assert.equal(formatUsageLimits({ weekly: { percent: 50 } }, NOW), "week 50%");
+});
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+test("formatUsageLimits: adds how long until each window resets", () => {
+  const limits = { fiveHour: { percent: 91, resetsAt: NOW + HOUR + 20 * MINUTE }, weekly: { percent: 40, resetsAt: NOW + 3 * DAY + 13 * HOUR } };
+  assert.equal(formatUsageLimits(limits, NOW), "5h 91% (1h 20m) · week 40% (3d 13h)");
+});
+
+test("formatUsageLimits: the reset time uses the two biggest units, drops a zero second one, rounds down", () => {
+  const fiveHour = (resetsIn: number) => formatUsageLimits({ fiveHour: { percent: 12, resetsAt: NOW + resetsIn } }, NOW);
+  assert.equal(fiveHour(45 * MINUTE + 59_000), "5h 12% (45m)");
+  assert.equal(fiveHour(2 * HOUR), "5h 12% (2h)");
+  assert.equal(fiveHour(3 * DAY + 59 * MINUTE), "5h 12% (3d)");
+  assert.equal(fiveHour(30_000), "5h 12% (<1m)");
+  assert.equal(fiveHour(HOUR), "5h 12% (1h)");
+  assert.equal(fiveHour(DAY), "5h 12% (1d)");
+});
+
+test("formatUsageLimits: a reset time already past shows the percent only", () => {
+  assert.equal(formatUsageLimits({ fiveHour: { percent: 91, resetsAt: NOW - MINUTE } }, NOW), "5h 91%");
+  assert.equal(formatUsageLimits({ weekly: { percent: 40, resetsAt: NOW } }, NOW), "week 40%");
 });
 
 test("usageLimitsDisabled: CSWITCH_NO_USAGE turns the network call off", () => {
@@ -175,7 +216,7 @@ test("loadUsageLimits: CSWITCH_NO_USAGE skips even a profile with a live token",
 
     assert.equal(await loadUsageLimits({ ...base, env: { CSWITCH_NO_USAGE: "1" } }), undefined);
     assert.equal(requests, 0);
-    assert.deepEqual(await loadUsageLimits({ ...base, env: {} }), { fiveHourPercent: 5 });
+    assert.deepEqual(await loadUsageLimits({ ...base, env: {} }), { fiveHour: { percent: 5 } });
     assert.equal(requests, 1);
   } finally {
     rmSync(home, { recursive: true, force: true });

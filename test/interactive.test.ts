@@ -1350,7 +1350,7 @@ test("runInteractive: usage limits fetched after the list opens are drawn into i
       write: (text) => written.push(text),
       usageLimits: async (record) => {
         asked.push(record.name);
-        return record.name === "work" ? { fiveHourPercent: 37, weeklyPercent: 7 } : undefined;
+        return record.name === "work" ? { fiveHour: { percent: 37 }, weekly: { percent: 7 } } : undefined;
       },
     });
 
@@ -1368,8 +1368,8 @@ test("runInteractive: usage limits that arrive after a launch never draw over th
     seedExistingProfiles(home, ["default", "work"]);
     const written: string[] = [];
     const stdin = fakeStdin();
-    let releaseUsage: (limits: { fiveHourPercent: number }) => void = () => {};
-    const usageArrives = new Promise<{ fiveHourPercent: number }>((resolve) => (releaseUsage = resolve));
+    let releaseUsage: (limits: { fiveHour: { percent: number } }) => void = () => {};
+    const usageArrives = new Promise<{ fiveHour: { percent: number } }>((resolve) => (releaseUsage = resolve));
     let releaseLaunch: (code: number) => void = () => {};
 
     const resultPromise = runInteractive({
@@ -1389,7 +1389,7 @@ test("runInteractive: usage limits that arrive after a launch never draw over th
     await settle();
     const writesAtLaunch = written.length;
 
-    releaseUsage({ fiveHourPercent: 50 });
+    releaseUsage({ fiveHour: { percent: 50 } });
     await settle();
     await settle();
     assert.equal(written.length, writesAtLaunch, "nothing may be written once claude owns the terminal");

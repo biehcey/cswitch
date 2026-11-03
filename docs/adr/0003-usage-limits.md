@@ -13,7 +13,9 @@ listelediği için, "hangi hesabımda limit kaldı?" sorusunun cevabı da orada 
 Bu bilgi diskte yok. Claude Code'un `/usage` ekranı onu her seferinde
 `GET https://api.anthropic.com/api/oauth/usage` adresinden, Account'un OAuth access token'ıyla
 alıyor. Adres belgelenmemiş ve her an değişebilir. Yanıttaki `five_hour.utilization` ve
-`seven_day.utilization` alanları 0–100 arası yüzde.
+`seven_day.utilization` alanları 0–100 arası yüzde. Aynı pencerelerdeki `resets_at`, pencerenin
+ne zaman sıfırlanacağı: ISO 8601 metin, ör. `2026-11-03T10:50:00.083387+00:00` (2026-11-03'te
+gerçek bir yanıtla doğrulandı).
 
 Bu, cswitch'in ilk kez (1) bir Account'un giriş anahtarını okuduğu ve (2) ağa çıktığı yer.
 O yüzden kurallar burada yazılı.
@@ -21,8 +23,10 @@ O yüzden kurallar burada yazılı.
 ## Karar
 
 Interactive Mode açılınca her Profile için limitler arka planda istenir. Liste beklemez,
-cevap gelen satırın sonuna `5h 37% · week 7%` eklenir. %80'den itibaren sarı, %95'ten
-itibaren kırmızı yazılır.
+cevap gelen satırın sonuna `5h 37% (1h 20m) · week 7% (3d 13h)` eklenir. Parantez içi,
+pencerenin sıfırlanmasına kalan süredir. Satır her çizildiğinde o anki saate göre hesaplanır.
+Sıfırlanma zamanı yoksa, okunamıyorsa ya da geçmişse yalnızca yüzde yazılır. %80'den itibaren
+sarı, %95'ten itibaren kırmızı yazılır; renk yalnızca yüzdeye bakar.
 
 Kurallar:
 

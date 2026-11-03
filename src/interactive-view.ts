@@ -131,15 +131,16 @@ function accountCell(account: AccountDisplay): { text: string; style: string } {
  * A Profile's Usage Limits as the list shows them (docs/adr/0003): dim while
  * there's room, yellow from 80%, red at 95% — red and yellow already mean
  * "look at this" on this screen. No limits (not fetched yet, failed, opted
- * out) is an empty cell, so the row looks as it did before.
+ * out) is an empty cell, so the row looks as it did before. Reset times are
+ * counted from `now`, so each redraw shows a fresh countdown.
  */
-function usageCell(limits: UsageLimits | undefined): { text: string; style: string } {
+function usageCell(limits: UsageLimits | undefined, now: number): { text: string; style: string } {
   if (limits === undefined) {
     return { text: "", style: "" };
   }
   const highest = highestPercent(limits);
   const style = highest >= 95 ? RED : highest >= 80 ? YELLOW : DIM;
-  return { text: formatUsageLimits(limits), style };
+  return { text: formatUsageLimits(limits, now), style };
 }
 
 function profileColor(profiles: ProfileStatus[], name: string): string {
@@ -164,12 +165,13 @@ export function renderProfileList(
   notice?: string,
   recent?: RecentSection,
   usage?: ReadonlyMap<string, UsageLimits>,
+  now: number = Date.now(),
 ): string {
   const accounts = profiles.map((p) => accountCell(p.account));
   const nameWidth = Math.max(0, ...profiles.map((p) => p.name.length));
   const accountWidth = Math.max(0, ...accounts.map((a) => a.text.length));
 
-  const usageCells = profiles.map((p) => usageCell(usage?.get(p.name)));
+  const usageCells = profiles.map((p) => usageCell(usage?.get(p.name), now));
   const defaultWidth = profiles.some((p) => p.inPlace) ? "default".length : 0;
 
   const rows = profiles.map((profile, index) => {

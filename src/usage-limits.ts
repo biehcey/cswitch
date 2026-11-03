@@ -18,8 +18,15 @@ import { profileConfigDir } from "./launch.js";
  * - opt-out with `CSWITCH_NO_USAGE=1`.
  */
 export interface UsageLimits {
-  fiveHourPercent?: number;
-  weeklyPercent?: number;
+  fiveHour?: UsageWindow;
+  weekly?: UsageWindow;
+}
+
+/** One limit window: how full it is and, when known, when it resets. Held in memory only. */
+export interface UsageWindow {
+  percent: number;
+  /** Epoch ms. */
+  resetsAt?: number;
 }
 
 // UNVERIFIED: undocumented — the endpoint Claude Code's `/usage` calls.
@@ -94,12 +101,30 @@ export function readAccessToken(params: ReadAccessTokenParams): string | undefin
   }
 }
 
-function windowPercent(window: unknown): number | undefined {
+// Only the shape the endpoint really sends (`2026-11-03T10:50:00.083387+00:00`):
+// Date.parse alone is lenient and would read "foo 2030" as a year.
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+/** `resets_at` as epoch ms; undefined if missing or not an ISO 8601 date-time. */
+function parseResetsAt(resetsAt: unknown): number | undefined {
+  if (typeof resetsAt !== "string" || !ISO_DATE_TIME.test(resetsAt)) {
+    return undefined;
+  }
+  const ms = Date.parse(resetsAt);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+/** One window out of the endpoint's JSON; undefined without a usable `utilization`. A bad `resets_at` only drops the reset time. */
+function parseWindow(window: unknown): UsageWindow | undefined {
   if (window === null || typeof window !== "object") {
     return undefined;
   }
-  const utilization = (window as { utilization?: unknown }).utilization;
-  return typeof utilization === "number" && Number.isFinite(utilization) ? Math.round(utilization) : undefined;
+  const { utilization, resets_at } = window as { utilization?: unknown; resets_at?: unknown };
+  if (typeof utilization !== "number" || !Number.isFinite(utilization)) {
+    return undefined;
+  }
+  const resetsAt = parseResetsAt(resets_at);
+  return resetsAt === undefined ? { percent: Math.round(utilization) } : { percent: Math.round(utilization), resetsAt };
 }
 
 /** Picks the 5-hour and weekly windows out of the endpoint's JSON; undefined if neither is there. */
@@ -108,12 +133,15 @@ export function parseUsageLimits(body: unknown): UsageLimits | undefined {
     return undefined;
   }
   const data = body as { five_hour?: unknown; seven_day?: unknown };
+  const fiveHour = parseWindow(data.five_hour);
+  const weekly = parseWindow(data.seven_day);
+  if (fiveHour === undefined && weekly === undefined) {
+    return undefined;
+  }
   const limits: UsageLimits = {};
-  const fiveHour = windowPercent(data.five_hour);
-  const weekly = windowPercent(data.seven_day);
-  if (fiveHour !== undefined) limits.fiveHourPercent = fiveHour;
-  if (weekly !== undefined) limits.weeklyPercent = weekly;
-  return fiveHour === undefined && weekly === undefined ? undefined : limits;
+  if (fiveHour !== undefined) limits.fiveHour = fiveHour;
+  if (weekly !== undefined) limits.weekly = weekly;
+  return limits;
 }
 
 /** One GET to the usage endpoint with this token. Never rejects: any failure is undefined. */
@@ -132,17 +160,46 @@ export async function fetchUsageLimits(token: string, fetchImpl: FetchLike = fet
   }
 }
 
-/** The list row's short form: `5h 37% · week 7%`. */
-export function formatUsageLimits(limits: UsageLimits): string {
+/**
+ * How long until a window resets, in its two biggest units, rounded down:
+ * `3d 13h`, `1h 20m`, `45m`, `<1m`; a zero second unit is dropped (`2h`).
+ * Undefined when there's no reset time or it's already past — the percent
+ * alone then, rather than a countdown that's wrong.
+ */
+function timeUntilReset(resetsAt: number | undefined, now: number): string | undefined {
+  if (resetsAt === undefined || resetsAt <= now) {
+    return undefined;
+  }
+  const totalMinutes = Math.floor((resetsAt - now) / 60_000);
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor(totalMinutes / 60) % 24;
+  const minutes = totalMinutes % 60;
+  if (days > 0) {
+    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  }
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  return minutes > 0 ? `${minutes}m` : "<1m";
+}
+
+/** One window as the row shows it: `5h 91% (1h 20m)`, or `5h 91%` with no upcoming reset time. */
+function formatWindow(label: string, window: UsageWindow, now: number): string {
+  const resetIn = timeUntilReset(window.resetsAt, now);
+  return resetIn === undefined ? `${label} ${window.percent}%` : `${label} ${window.percent}% (${resetIn})`;
+}
+
+/** The list row's short form: `5h 37% (1h 20m) · week 7% (3d 13h)`, the reset times counted from `now`. */
+export function formatUsageLimits(limits: UsageLimits, now: number): string {
   const parts: string[] = [];
-  if (limits.fiveHourPercent !== undefined) parts.push(`5h ${limits.fiveHourPercent}%`);
-  if (limits.weeklyPercent !== undefined) parts.push(`week ${limits.weeklyPercent}%`);
+  if (limits.fiveHour !== undefined) parts.push(formatWindow("5h", limits.fiveHour, now));
+  if (limits.weekly !== undefined) parts.push(formatWindow("week", limits.weekly, now));
   return parts.join(" · ");
 }
 
 /** The fullest window's percent — what decides whether the row should warn. */
 export function highestPercent(limits: UsageLimits): number {
-  return Math.max(limits.fiveHourPercent ?? 0, limits.weeklyPercent ?? 0);
+  return Math.max(limits.fiveHour?.percent ?? 0, limits.weekly?.percent ?? 0);
 }
 
 export interface LoadUsageLimitsParams {
